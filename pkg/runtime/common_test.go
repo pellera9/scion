@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,20 +111,148 @@ func TestBuildCommonRunArgs(t *testing.T) {
 				"-e", "GEMINI_DEFAULT_AUTH_TYPE=compute-default-credentials",
 			},
 		},
+		{
+			name: "other auth and model",
+			config: RunConfig{
+				Name: "test-agent",
+				Auth: config.AuthConfig{
+					GoogleAPIKey:       "google-123",
+					VertexAPIKey:       "vertex-123",
+					GoogleCloudProject: "my-project",
+				},
+				Model: "gemini-1.5-pro",
+				Image: "scion-agent:latest",
+			},
+			wantIn: []string{
+				"-e GOOGLE_API_KEY=google-123",
+				"-e VERTEX_API_KEY=vertex-123",
+				"-e GOOGLE_CLOUD_PROJECT=my-project",
+				"-e GEMINI_MODEL=gemini-1.5-pro",
+			},
+		},
+		{
+			name: "resume and env",
+			config: RunConfig{
+				Name:  "test-agent",
+				Image: "scion-agent:latest",
+				Env:   []string{"FOO=BAR"},
+				Task:  "hello",
+				Resume: true,
+			},
+			wantIn: []string{
+				"-e FOO=BAR",
+				"gemini --yolo --resume --prompt-interactive hello",
+			},
+		},
+		{
+			name: "resume and tmux",
+			config: RunConfig{
+				Name:    "test-agent",
+				Image:   "scion-agent:latest",
+				UseTmux: true,
+				Task:    "hello",
+				Resume:  true,
+			},
+			wantIn: []string{
+				"tmux new-session -s scion gemini --yolo --resume --prompt-interactive \"hello\"",
+			},
+		},
+		{
+			name: "template label",
+			config: RunConfig{
+				Name:     "test-agent",
+				Image:    "scion-agent:latest",
+				Template: "my-template",
+			},
+			wantIn: []string{
+				"--label scion.template=my-template",
+			},
+		},
+		{
+			name: "oauth without home",
+			config: RunConfig{
+				Name:         "test-agent",
+				UnixUsername: "scion",
+				Auth: config.AuthConfig{
+					OAuthCreds: oauthFile,
+				},
+				Image: "scion-agent:latest",
+			},
+			wantIn: []string{
+				"-v " + oauthFile + ":/home/scion/.gemini/oauth_creds.json:ro",
+				"-e GEMINI_DEFAULT_AUTH_TYPE=oauth-personal",
+			},
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args, err := buildCommonRunArgs(tt.config)
-			if err != nil {
-				t.Fatalf("buildCommonRunArgs failed: %v", err)
-			}
-			argStr := strings.Join(args, " ")
-			for _, want := range tt.wantIn {
-				if !strings.Contains(argStr, want) {
-					t.Errorf("expected arg %q not found in %v", want, args)
+		for _, tt := range tests {
+
+			t.Run(tt.name, func(t *testing.T) {
+
+				args, err := buildCommonRunArgs(tt.config)
+
+				if err != nil {
+
+					t.Fatalf("buildCommonRunArgs failed: %v", err)
+
 				}
-			}
-		})
+
+				argStr := strings.Join(args, " ")
+
+				for _, want := range tt.wantIn {
+
+					if !strings.Contains(argStr, want) {
+
+						t.Errorf("expected arg %q not found in %v", want, args)
+
+					}
+
+				}
+
+				for _, notWant := range tt.wantOut {
+
+					if strings.Contains(argStr, notWant) {
+
+						t.Errorf("unexpected arg %q found in %v", notWant, args)
+
+					}
+
+				}
+
+			})
+
+		}
+
 	}
-}
+
+	
+
+	func TestRunSimpleCommand(t *testing.T) {
+
+		out, err := runSimpleCommand(context.Background(), "echo", "hello")
+
+		if err != nil {
+
+			t.Fatalf("runSimpleCommand failed: %v", err)
+
+		}
+
+		if out != "hello" {
+
+			t.Errorf("expected \"hello\", got %q", out)
+
+		}
+
+	
+
+		_, err = runSimpleCommand(context.Background(), "false")
+
+		if err == nil {
+
+			t.Error("expected error from running 'false', got nil")
+
+		}
+
+	}
+
+	
