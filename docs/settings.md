@@ -71,7 +71,7 @@ Harnesses define *what* software runs inside the container (e.g., Gemini CLI, Cl
     "image": "gemini-cli:latest",
     "user": "root",
     "env": {
-      "GEMINI_MODEL": "gemini-1.5-pro"
+      "GEMINI_MODEL": "gemini-2.5-pro"
     }
   },
   "claude": {
@@ -131,6 +131,28 @@ These settings apply globally or define defaults.
 ```json
 "active_profile": "local",
 "default_template": "gemini"
+```
+
+## Environment Variable Substitution
+
+Scion supports environment variable substitution in `settings.json` for all `env` maps (both keys and values) and `volumes` (both source and target paths). This allows you to create portable configurations that adapt to different user environments.
+
+Variables can be specified using either `${VAR}` or `$VAR` syntax. If a variable is not set in the host environment, a warning will be printed to stderr, and the variable will evaluate to an empty string.
+
+**Example: Using GOPATH for volume mounts**
+
+```json
+"profiles": {
+  "work": {
+    "runtime": "docker",
+    "volumes": [
+      {
+        "source": "${GOPATH}/pkg",
+        "target": "/go/pkg"
+      }
+    ]
+  }
+}
 ```
 
 ## Resolution Logic
@@ -209,13 +231,7 @@ You can use profiles to inject personal configurations, such as git authorship i
         "GIT_AUTHOR_NAME": "Jane Doe",
         "GIT_COMMITTER_EMAIL": "user@example.com",
         "GIT_COMMITTER_NAME": "Jane Doe"
-      },
-      "volumes": [
-        {
-          "source": "/Users/username/Projects/code/go/pkg",
-          "target": "/home/node/go/pkg/"
-        }
-      ]
+      }
     }
   }
 ```
