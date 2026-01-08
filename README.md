@@ -10,6 +10,7 @@ Scion is a container-based orchestration tool designed to manage concurrent LLM-
 - **Specialization**: Agents can be customized via [Templates](docs/guides/templates.md) (e.g., "Security Auditor", "QA Tester") to perform specific roles.
 - **Interactivity**: Agents support "detached" background operation, but users can "attach" to any running agent for human-in-the-loop interaction.
 - **Multi-Runtime**: Supports Docker, Apple Virtualization Framework, and (Experimental) Kubernetes.
+- **Harness Agnostic**: Works with Gemini CLI, Claude Code and can be adapted to any harness which can run in a container.
 
 ## Documentation
 
