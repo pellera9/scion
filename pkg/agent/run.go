@@ -118,8 +118,9 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
+	var warnings []string
 	if m.Runtime.Name() == "container" && !useTmux {
-		fmt.Fprintf(os.Stderr, "Warning: Apple container runtime does not support 'attach' without tmux. Sessions will be non-interactive after start.\n")
+		warnings = append(warnings, "Warning: Apple container runtime does not support 'attach' without tmux. Sessions will be non-interactive after start.")
 	}
 
 	// CLI Overrides
@@ -166,7 +167,8 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
-	agentEnv := buildAgentEnv(finalScionCfg, opts.Env)
+	agentEnv, envWarnings := buildAgentEnv(finalScionCfg, opts.Env)
+	warnings = append(warnings, envWarnings...)
 
 	template := ""
 	if finalScionCfg != nil && finalScionCfg.Info != nil {
@@ -246,16 +248,18 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		for _, a := range allAgents {
 			if a.ID == id || a.Name == opts.Name {
 				a.Detached = detached
+				a.Warnings = warnings
 				return &a, nil
 			}
 		}
 	}
 
-	return &api.AgentInfo{ID: id, Name: opts.Name, Status: status, Detached: detached}, nil
+	return &api.AgentInfo{ID: id, Name: opts.Name, Status: status, Detached: detached, Warnings: warnings}, nil
 }
 
-func buildAgentEnv(scionCfg *api.ScionConfig, extraEnv map[string]string) []string {
+func buildAgentEnv(scionCfg *api.ScionConfig, extraEnv map[string]string) ([]string, []string) {
 	combined := make(map[string]string)
+	var warnings []string
 
 	if scionCfg != nil && scionCfg.Env != nil {
 		for k, v := range scionCfg.Env {
@@ -282,11 +286,10 @@ func buildAgentEnv(scionCfg *api.ScionConfig, extraEnv map[string]string) []stri
 	agentEnv := []string{}
 	for k, v := range combined {
 		if v == "" {
-			fmt.Fprintf(os.Stderr, "Warning: Environment variable '%s' has no value and will be omitted.\n", k)
+			warnings = append(warnings, fmt.Sprintf("Warning: Environment variable '%s' has no value and will be omitted.", k))
 			continue
 		}
 		agentEnv = append(agentEnv, fmt.Sprintf("%s=%s", k, v))
 	}
-	return agentEnv
+	return agentEnv, warnings
 }
-		

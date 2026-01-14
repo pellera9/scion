@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/api"
-	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -30,14 +30,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		effectiveProfile = agent.GetSavedProfile(agentName, grovePath)
 	}
 
-	effectiveRuntime := effectiveProfile
-	if effectiveRuntime == "" {
-		// If still no profile, we'll let GetRuntime handle auto-detection
-		// but we might want to check for saved runtime as fallback
-		effectiveRuntime = agent.GetSavedRuntime(agentName, grovePath)
-	}
-
-	rt := runtime.GetRuntime(grovePath, effectiveRuntime)
+	rt := agent.ResolveRuntime(grovePath, agentName, profile)
 	mgr := agent.NewManager(rt)
 
 	// Check if already running and we want to attach
@@ -90,6 +83,10 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 	info, err := mgr.Start(context.Background(), opts)
 	if err != nil {
 		return err
+	}
+
+	for _, w := range info.Warnings {
+		fmt.Fprintln(os.Stderr, w)
 	}
 
 	if !info.Detached {

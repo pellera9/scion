@@ -28,7 +28,7 @@ func TestBuildAgentEnv(t *testing.T) {
 		"EMPTY_EXTRA_KEY": "", // Should be omitted
 	}
 
-	env := buildAgentEnv(scionCfg, extraEnv)
+	env, warnings := buildAgentEnv(scionCfg, extraEnv)
 
 	expected := map[string]string{
 		"NORMAL_KEY":    "normal-value",
@@ -46,6 +46,10 @@ func TestBuildAgentEnv(t *testing.T) {
 
 	if len(env) != len(expected) {
 		t.Errorf("expected %d env vars, got %d: %v", len(expected), len(env), env)
+	}
+
+	if len(warnings) != 3 {
+		t.Errorf("expected 3 warnings, got %d: %v", len(warnings), warnings)
 	}
 
 	for k, v := range expected {

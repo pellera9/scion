@@ -88,6 +88,7 @@ type AgentInfo struct {
 	Runtime     string            `json:"runtime,omitempty"`
 	Profile     string            `json:"profile,omitempty"`
 	Kubernetes  *AgentK8sMetadata `json:"kubernetes,omitempty"`
+	Warnings    []string          `json:"warnings,omitempty"`
 }
 
 type StartOptions struct {
