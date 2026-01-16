@@ -4,141 +4,102 @@
 **Proposed**
 
 ## 1. Overview
-This document outlines the architecture for transforming Scion from a local/hybrid CLI tool into a fully hosted, web-based SaaS platform. The core goal is to enable users to run, manage, and interact with coding agents entirely through a web browser, without local dependencies like Docker or the Scion CLI.
+This document outlines the architecture for transforming Scion into a distributed platform supporting multiple runtime environments. The core goal is to separate the **State Management** (persistence/metadata) from the **Runtime Execution** (container orchestration).
 
-The platform will leverage Kubernetes for agent orchestration and replace local file-based persistence with a centralized database (Firestore).
+The architecture introduces:
+*   **Scion Hub (State Server):** A centralized API and database for agent state, templates, and users.
+*   **Runtime Hosts:** Independent execution environments (local Docker, remote Kubernetes cluster, single server) that manage the actual agent containers.
+
+This distributed model supports fully hosted SaaS scenarios, hybrid local/cloud setups, and "Solo Mode" (standalone CLI) using the same architectural primitives.
 
 ## 2. Goals & Scope
-*   **Fully Hosted:** No local CLI required.
-*   **Web-Based PTY:** Users attach to agent shells via a browser-based terminal.
-*   **Kubernetes Only:** The runtime will be exclusively Kubernetes to ensure scalability and standard orchestration.
-*   **Centralized Templates:** Agent blueprints (templates) are stored and managed on the server.
-*   **Git-Centric:** Agents operate primarily by cloning Git repositories.
-*   **Zip Export:** Support for downloading the workspace state for non-coding usage.
-*   **Persistent State:** Move agent metadata and state from `.scion/` files to a database.
+*   **Distributed Architecture:** Multiple Runtime Hosts can register with a single Scion Hub.
+*   **Centralized State:** Agent metadata is persisted in a central database (Scion Hub), not just local files.
+*   **Flexible Runtime:** Agents can run on local Docker, a remote server, or a Kubernetes cluster.
+*   **Unified Interface:** Users interact with the Scion Hub API (or a CLI connected to it) to manage agents across any host.
+*   **Web-Based Access:** Support for web-based PTY and management for hosted agents.
 
 ## 3. High-Level Architecture
 
-The system consists of the following core components:
-
 ```mermaid
 graph TD
-    User[User (Browser)] -->|HTTPS| LB[Load Balancer]
-    LB -->|REST/gRPC| API[Scion API Server]
-    LB -->|WebSocket| API
+    User[User (CLI / Browser)] -->|HTTPS/WS| Hub[Scion Hub (State Server)]
+    
+    Hub -->|DB| DB[(Firestore/Postgres)]
+    Hub -->|API| HostA[Runtime Host A (Kubernetes)]
+    Hub -->|API| HostB[Runtime Host B (Docker/Local)]
 
-    API -->|Manage| K8s[Kubernetes Cluster]
-    API -->|Read/Write| DB[(Firestore)]
-    API -->|Read/Write| Secrets[Secret Manager]
-
-    subgraph Kubernetes Cluster
-        AgentPod[Agent Pod]
-        InitContainer[Init: Git Clone]
-        Sidecar[Optional: Log Streamer]
-
-        AgentPod -->|Events/Status| API
+    subgraph Runtime Host A
+        PodA[Agent Pod]
     end
 
-    User -->|WS Stream| API -->|SPDY/Exec| AgentPod
+    subgraph Runtime Host B
+        ContainerB[Agent Container]
+    end
+
+    HostA -->|Status/Events| Hub
+    HostB -->|Status/Events| Hub
+
+    User -.->|Direct PTY (Optional)| HostA
 ```
 
 ## 4. Core Components
 
-### 4.1. Scion API Server
-A new Go-based server component responsible for:
-*   Implementing the `Manager` interface for centralized control.
-*   Handling user authentication and authorization.
-*   Proxying PTY connections (WebSockets) to Kubernetes pods.
-*   Serving the frontend application.
+### 4.1. Scion Hub (State Server)
+The central authority responsible for:
+*   **Persistence:** Stores `Agents`, `Groves` (Projects), `Users`, and `Templates`.
+*   **Registration:** Tracks available Runtime Hosts.
+*   **Routing:** Directs creation requests to the appropriate Runtime Host.
+*   **API:** Exposes the primary REST/gRPC interface for clients.
 
-### 4.2. Persistence Layer (Data Store)
-We will transition from local file persistence (`~/.scion`, `.scion/`) to a `Store` interface.
+### 4.2. Runtime Host
+An execution node responsible for the CRUD lifecycle of agents.
+*   **Interfaces:** Implements a standard API to `Start`, `Stop`, `Delete`, and `Attach` to agents.
+*   **Runtime Providers:**
+    *   **Kubernetes:** Orchestrates Pods/PVCs.
+    *   **Docker:** Orchestrates local containers.
+*   **Operational Modes:**
+    *   **Connected (Stateful):** Requires a persistent connection to the Scion Hub. The Hub has full control over the agent lifecycle on this host.
+    *   **Read-only (Stateless):** An intermediate mode between Solo and Connected. The host is configured with Hub endpoint(s) and informs them of lifecycle events, but no direct control is available from the Scion Hub.
+*   **Connectivity:** Can be co-located with the Hub or run remotely (requires secure tunnel/connection to Hub).
+*   **Agent Communication:** Configures the `sciontool` inside agents to report status back to the Hub.
 
-**Interface Definition:**
-```go
-type Store interface {
-    GetAgent(ctx context.Context, id string) (*AgentInfo, error)
-    CreateAgent(ctx context.Context, agent *AgentInfo) error
-    UpdateAgent(ctx context.Context, agent *AgentInfo) error
-    ListAgents(ctx context.Context, filter AgentFilter) ([]*AgentInfo, error)
-    GetTemplate(ctx context.Context, name string) (*Template, error)
-}
-```
-
-**Implementation:**
-*   **Initial:** Google Cloud Firestore.
-*   **Data Model:**
-    *   `Users`: Account info, preferences.
-    *   `Projects` (formerly Groves): Logical grouping of agents.
-    *   `Agents`: Metadata, status, runtime config, associated Pod name.
-    *   `Templates`: Server-side definitions of agent types (replacing local embedded templates).
-
-### 4.3. Runtime (Kubernetes Exclusive)
-The existing `KubernetesRuntime` will be adapted to:
-*   Remove dependencies on local paths (`grovePath`).
-*   Use persistent identifiers (Database IDs) instead of local folder names.
-*   **Storage:** Use `PersistentVolumeClaims` (PVCs) dynamically provisioned for each agent to persist `/home/scion`.
-*   **Networking:** Ensure pods are reachable by the API server for exec/attach commands.
+### 4.3. Grove (Project)
+A logical grouping of agents.
+*   **Distributed:** A Grove can span multiple Runtime Hosts.
+*   **Identifier:** Uses a persistent ID in the Hub, or a filesystem path in standalone mode.
 
 ### 4.4. Scion Tool (Agent-Side)
-The `sciontool` (Python script inside the container) currently relies on local hooks. In the hosted model:
-*   It will be configured via environment variables: `SCION_API_ENDPOINT`, `SCION_AGENT_ID`.
-*   It will communicate status updates, tool use events, and prompts back to the API Server via HTTP/gRPC.
-*   **Authentication:** The agent pod will use Workload Identity or an injected token to authenticate with the API Server.
+The agent-side helper script.
+*   **Dual Reporting:** Reports status to the local Runtime Host *and* (if configured) the central Scion Hub.
+*   **Identity:** Injected with `SCION_AGENT_ID` and `SCION_HUB_ENDPOINT`.
 
 ## 5. Detailed Workflows
 
-### 5.1. Agent Creation
-1.  **User** selects a Template (e.g., "Claude Code") and provides a Git Repository URL.
-2.  **API Server**:
-    *   Creates an `Agent` record in Firestore (Status: `PROVISIONING`).
-    *   Calls `KubernetesRuntime.Start`.
-3.  **KubernetesRuntime**:
-    *   Creates a PVC for the agent's home directory.
-    *   Launches a Pod with an **Init Container**.
-4.  **Init Container**:
-    *   Clones the provided Git URL into the shared volume.
-5.  **Main Container**:
-    *   Starts the agent process (e.g., `claude`).
-    *   `sciontool` notifies API that status is `RUNNING`.
+### 5.1. Agent Creation (Hosted/Distributed)
+1.  **User** requests agent creation via Scion Hub API.
+2.  **Scion Hub**:
+    *   Creates `Agent` record (Status: `PROVISIONING`).
+    *   Selects a target **Runtime Host** (based on policy or user selection).
+    *   Sends `CreateAgent` command to the Runtime Host.
+3.  **Runtime Host**:
+    *   Allocates resources (PVC, Container).
+    *   Starts the Agent.
+    *   Injects Hub connection details.
+4.  **Agent**:
+    *   Starts up.
+    *   `sciontool` reports `RUNNING` status to Scion Hub.
 
 ### 5.2. Web PTY Attachment
-1.  **Frontend** initiates a WebSocket connection to `wss://api.scion.host/agents/{id}/attach`.
-2.  **API Server** validates the session.
-3.  **API Server** upgrades the connection and establishes a stream to the Kubernetes Pod using `remotecommand.NewSPDYExecutor` (standard K8s API strategy).
-4.  **Data Flow:** Browser xterm.js <-> WebSocket <-> API Server <-> K8s SPDY <-> Pod PTY.
+1.  **User** connects to Scion Hub WebSocket.
+2.  **Scion Hub** identifies the Runtime Host managing the agent.
+3.  **Scion Hub** proxies the connection to the Runtime Host.
+4.  **Runtime Host** streams the PTY from the container.
 
-### 5.3. Zip Export
-1.  **User** requests `GET /agents/{id}/export`.
-2.  **API Server** streams a tarball from the Pod:
-    *   Executes `tar -czf - /home/scion/workspace` inside the pod.
-    *   Pipes the output directly to the HTTP response.
+### 5.3. Standalone Mode (Solo)
+*   The Scion CLI acts as both the **Hub** (using local file DB) and the **Runtime Host** (using Docker).
+*   No external network dependencies required.
 
-## 6. API Design (Draft)
-
-*   `GET /templates`: List available server-side templates.
-*   `POST /agents`: Create a new agent.
-    *   Body: `{ templateId, gitUrl, name }`
-*   `GET /agents`: List user's agents.
-*   `GET /agents/{id}`: Get agent details and status.
-*   `POST /agents/{id}/stop`: Stop the pod (retain PVC).
-*   `POST /agents/{id}/start`: Resume the agent (attach existing PVC).
-*   `DELETE /agents/{id}`: Destroy agent and release PVC.
-*   `WS /agents/{id}/attach`: WebSocket endpoint for PTY.
-
-## 7. Security Considerations
-
-*   **Isolation:**
-    *   Each user/project could reside in a separate Kubernetes Namespace, or use `NetworkPolicies` to isolate agent pods from each other in a shared namespace.
-    *   **Recommendation:** Start with a shared namespace and strict NetworkPolicies denying inter-pod communication.
-*   **Authentication:**
-    *   User Auth: OAuth2 / OIDC (Google/GitHub).
-    *   Agent-to-API Auth: Kubernetes Service Accounts projected as OIDC tokens (Workload Identity) to authenticate API calls from `sciontool`.
-*   **Secrets:**
-    *   SCM Credentials (GitHub Tokens) should be injected via K8s Secrets or External Secrets Operator, not stored in plain text in Firestore.
-
-## 8. Migration & compatibility
-*   The `pkg/agent.Manager` interface will have two implementations:
-    1.  `LocalManager`: The current implementation (files + Docker/K8s).
-    2.  `ServerManager`: The new implementation for the hosted service (DB + K8s).
-*   The CLI can eventually become a client for the API Server, allowing `scion attach` to work against hosted agents.
+## 6. Migration & Compatibility
+*   **Manager Interface:** The `pkg/agent.Manager` will be split/refined to support remote execution.
+*   **Storage Interface:** Introduce `pkg/store` interface to abstract `sqlite` (local) vs `firestore` (hosted).
