@@ -55,9 +55,6 @@ If you only want to test the Runtime Host API without the Hub:
 # Custom ports
 ./scion server start --enable-hub --port 8810 \
   --enable-runtime-host --runtime-host-port 8800
-
-# Read-only mode (reporting only, no agent control)
-./scion server start --enable-runtime-host --runtime-host-mode read-only
 ```
 
 ## 2. Test Runtime Host Health Endpoints
@@ -540,6 +537,7 @@ The agent's container will have `/Users/ptone/src/cli-projects/qa-scion` as its 
 
 ```bash
 curl -s -X DELETE "http://localhost:9800/api/v1/agents/project-agent?deleteFiles=true"
+# Returns 204 No Content on success
 ```
 
 ### Key Differences: Global vs Project Groves
@@ -551,47 +549,7 @@ curl -s -X DELETE "http://localhost:9800/api/v1/agents/project-agent?deleteFiles
 | Workspace | Current directory or empty | Project directory mounted |
 | Git Worktrees | Not applicable | Used for isolated agent branches |
 
-## 6. Read-Only Mode Testing
-
-Start the Runtime Host in read-only mode:
-
-```bash
-./scion server start --enable-runtime-host --runtime-host-mode read-only
-```
-
-### Verify Read-Only Mode
-
-```bash
-curl -s http://localhost:9800/healthz | jq '.mode'
-# Returns: "read-only"
-```
-
-### List Works
-
-```bash
-curl -s http://localhost:9800/api/v1/agents | jq
-# Returns agent list
-```
-
-### Create Blocked
-
-```bash
-curl -s -X POST http://localhost:9800/api/v1/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "blocked-agent"}' | jq
-```
-
-Expected response (405):
-```json
-{
-  "error": {
-    "code": "operation_not_allowed",
-    "message": "Operation not allowed in read-only mode"
-  }
-}
-```
-
-## 7. Error Handling
+## 6. Error Handling
 
 ### No Runtime Host Available
 
@@ -695,7 +653,7 @@ Expected response (400):
 }
 ```
 
-## 8. Full Workflow Script
+## 7. Full Workflow Script
 
 Save this as `test-runtime-host.sh`:
 
@@ -767,7 +725,7 @@ chmod +x test-runtime-host.sh
 ./test-runtime-host.sh
 ```
 
-## 9. Cleanup
+## 8. Cleanup
 
 ### Stop the Server
 

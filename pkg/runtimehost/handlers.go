@@ -116,10 +116,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listAgents(w, r)
 	case http.MethodPost:
-		if s.IsReadOnly() {
-			OperationNotAllowed(w)
-			return
-		}
 		s.createAgent(w, r)
 	default:
 		MethodNotAllowed(w)
@@ -244,10 +240,6 @@ func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.getAgent(w, r, id)
 	case http.MethodDelete:
-		if s.IsReadOnly() {
-			OperationNotAllowed(w)
-			return
-		}
 		s.deleteAgent(w, r, id)
 	default:
 		MethodNotAllowed(w)
@@ -281,7 +273,22 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 	deleteFiles := query.Get("deleteFiles") == "true"
 	removeBranch := query.Get("removeBranch") == "true"
 
-	_, err := s.manager.Delete(ctx, id, deleteFiles, "", removeBranch)
+	// Get the agent's grove path before stopping (needed for file deletion)
+	var grovePath string
+	agents, err := s.manager.List(ctx, map[string]string{"scion.agent": "true"})
+	if err == nil {
+		for _, agent := range agents {
+			if agent.Name == id || agent.ID == id || agent.AgentID == id {
+				grovePath = agent.GrovePath
+				break
+			}
+		}
+	}
+
+	// Stop the agent first (like the CLI does), ignore error if already stopped
+	_ = s.manager.Stop(ctx, id)
+
+	_, err = s.manager.Delete(ctx, id, deleteFiles, grovePath, removeBranch)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			NotFound(w, "Agent")
@@ -298,15 +305,6 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 	if r.Method != http.MethodPost {
 		MethodNotAllowed(w)
 		return
-	}
-
-	// Check read-only mode for mutating actions
-	if s.IsReadOnly() {
-		switch action {
-		case "start", "stop", "restart", "message":
-			OperationNotAllowed(w)
-			return
-		}
 	}
 
 	switch action {

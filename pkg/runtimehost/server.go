@@ -29,7 +29,7 @@ type ServerConfig struct {
 	// WriteTimeout is the maximum duration before timing out writes.
 	WriteTimeout time.Duration
 
-	// Mode is the operational mode: "connected" or "read-only".
+	// Mode is the operational mode (currently only "connected" is supported).
 	Mode string
 	// HubEndpoint is the Hub API endpoint for reporting (optional).
 	HubEndpoint string
@@ -146,11 +146,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // This is useful for testing without starting a listener.
 func (s *Server) Handler() http.Handler {
 	return s.applyMiddleware(s.mux)
-}
-
-// IsReadOnly returns true if the server is in read-only mode.
-func (s *Server) IsReadOnly() bool {
-	return s.config.Mode == config.RuntimeHostModeReadOnly
 }
 
 // registerRoutes sets up all API routes.

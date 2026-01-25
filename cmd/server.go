@@ -31,7 +31,6 @@ var (
 	enableHub         bool
 	enableRuntimeHost bool
 	runtimeHostPort   int
-	runtimeHostMode   string
 	dbURL             string
 )
 
@@ -103,9 +102,6 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("runtime-host-port") {
 		cfg.RuntimeHost.Port = runtimeHostPort
-	}
-	if cmd.Flags().Changed("runtime-host-mode") {
-		cfg.RuntimeHost.Mode = runtimeHostMode
 	}
 
 	// Check if at least one server is enabled
@@ -490,5 +486,4 @@ func init() {
 	// Runtime Host API flags
 	serverStartCmd.Flags().BoolVar(&enableRuntimeHost, "enable-runtime-host", false, "Enable the Runtime Host API")
 	serverStartCmd.Flags().IntVar(&runtimeHostPort, "runtime-host-port", 9800, "Runtime Host API port")
-	serverStartCmd.Flags().StringVar(&runtimeHostMode, "runtime-host-mode", "connected", "Runtime Host mode (connected, read-only)")
 }

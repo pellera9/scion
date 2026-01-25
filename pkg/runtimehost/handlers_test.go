@@ -265,52 +265,6 @@ func TestStopAgent(t *testing.T) {
 	}
 }
 
-func TestReadOnlyModeBlocksCreate(t *testing.T) {
-	cfg := DefaultServerConfig()
-	cfg.Mode = "read-only"
-	cfg.HostID = "test-host-id"
-
-	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
-
-	srv := New(cfg, mgr, rt)
-
-	body := `{"name": "new-agent"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	srv.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
-	}
-}
-
-func TestReadOnlyModeAllowsList(t *testing.T) {
-	cfg := DefaultServerConfig()
-	cfg.Mode = "read-only"
-	cfg.HostID = "test-host-id"
-
-	mgr := &mockManager{
-		agents: []api.AgentInfo{
-			{Name: "agent-1", Status: "running"},
-		},
-	}
-	rt := &runtime.MockRuntime{}
-
-	srv := New(cfg, mgr, rt)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
-	w := httptest.NewRecorder()
-
-	srv.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
-	}
-}
-
 func TestMethodNotAllowed(t *testing.T) {
 	srv := newTestServer()
 

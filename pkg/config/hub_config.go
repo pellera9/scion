@@ -41,7 +41,7 @@ type RuntimeHostConfig struct {
 	// WriteTimeout is the maximum duration before timing out writes
 	WriteTimeout time.Duration `json:"writeTimeout" yaml:"writeTimeout" koanf:"writeTimeout"`
 
-	// Mode is the operational mode: "connected" (full control) or "read-only" (reporting only)
+	// Mode is the operational mode (currently only "connected" is supported)
 	Mode string `json:"mode" yaml:"mode" koanf:"mode"`
 	// HubEndpoint is the Hub API endpoint for status reporting (when Hub not co-located)
 	HubEndpoint string `json:"hubEndpoint" yaml:"hubEndpoint" koanf:"hubEndpoint"`
@@ -62,7 +62,6 @@ type RuntimeHostConfig struct {
 // Runtime Host operational modes
 const (
 	RuntimeHostModeConnected = "connected"
-	RuntimeHostModeReadOnly  = "read-only"
 )
 
 // DatabaseConfig holds database connection settings.

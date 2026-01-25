@@ -20,17 +20,16 @@ type ErrorResponse struct {
 
 // Error codes matching the Runtime Host API specification.
 const (
-	ErrCodeInvalidRequest     = "invalid_request"
-	ErrCodeValidationError    = "validation_error"
-	ErrCodeUnauthorized       = "unauthorized"
-	ErrCodeForbidden          = "forbidden"
-	ErrCodeAgentNotFound      = "agent_not_found"
-	ErrCodeNotFound           = "not_found"
-	ErrCodeConflict           = "conflict"
-	ErrCodeMethodNotAllowed   = "method_not_allowed"
-	ErrCodeInternalError      = "internal_error"
-	ErrCodeRuntimeError       = "runtime_error"
-	ErrCodeOperationNotAllowed = "operation_not_allowed"
+	ErrCodeInvalidRequest   = "invalid_request"
+	ErrCodeValidationError  = "validation_error"
+	ErrCodeUnauthorized     = "unauthorized"
+	ErrCodeForbidden        = "forbidden"
+	ErrCodeAgentNotFound    = "agent_not_found"
+	ErrCodeNotFound         = "not_found"
+	ErrCodeConflict         = "conflict"
+	ErrCodeMethodNotAllowed = "method_not_allowed"
+	ErrCodeInternalError    = "internal_error"
+	ErrCodeRuntimeError     = "runtime_error"
 )
 
 // writeError writes a JSON error response.
@@ -84,12 +83,6 @@ func Forbidden(w http.ResponseWriter) {
 func MethodNotAllowed(w http.ResponseWriter) {
 	writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed,
 		"Method not allowed", nil)
-}
-
-// OperationNotAllowed writes a 405 Method Not Allowed response for read-only mode.
-func OperationNotAllowed(w http.ResponseWriter) {
-	writeError(w, http.StatusMethodNotAllowed, ErrCodeOperationNotAllowed,
-		"Operation not allowed in read-only mode", nil)
 }
 
 // Conflict writes a 409 Conflict response.
