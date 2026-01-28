@@ -69,6 +69,11 @@ type HubClientConfig struct {
 	// Enabled indicates whether Hub integration is enabled.
 	// When enabled and configured, agent operations are routed through the Hub.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty" koanf:"enabled"`
+	// LocalOnly indicates that this grove should operate in local-only mode.
+	// When set to true, Hub sync checks will error with guidance to use --no-hub.
+	// This is different from Enabled=false: LocalOnly=true means Hub IS configured
+	// but the user has explicitly opted out of sync requirements for this grove.
+	LocalOnly *bool `json:"local_only,omitempty" yaml:"local_only,omitempty" koanf:"local_only"`
 	// Endpoint is the Hub API endpoint URL
 	Endpoint string `json:"endpoint,omitempty" yaml:"endpoint,omitempty" koanf:"endpoint"`
 	// Token is a bearer token for authentication
@@ -548,6 +553,12 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 		}
 		enabled := value == "true"
 		current.Hub.Enabled = &enabled
+	case "hub.local_only":
+		if current.Hub == nil {
+			current.Hub = &HubClientConfig{}
+		}
+		localOnly := value == "true"
+		current.Hub.LocalOnly = &localOnly
 	case "cli.autohelp":
 		if current.CLI == nil {
 			current.CLI = &CLIConfig{}
@@ -644,6 +655,14 @@ func GetSettingValue(s *Settings, key string) (string, error) {
 			return "false", nil
 		}
 		return "", nil
+	case "hub.local_only":
+		if s.Hub != nil && s.Hub.LocalOnly != nil {
+			if *s.Hub.LocalOnly {
+				return "true", nil
+			}
+			return "false", nil
+		}
+		return "", nil
 	case "cli.autohelp":
 		if s.CLI != nil && s.CLI.AutoHelp != nil {
 			if *s.CLI.AutoHelp {
@@ -672,6 +691,13 @@ func GetSettingsMap(s *Settings) map[string]string {
 				m["hub.enabled"] = "true"
 			} else {
 				m["hub.enabled"] = "false"
+			}
+		}
+		if s.Hub.LocalOnly != nil {
+			if *s.Hub.LocalOnly {
+				m["hub.local_only"] = "true"
+			} else {
+				m["hub.local_only"] = "false"
 			}
 		}
 		m["hub.endpoint"] = s.Hub.Endpoint
@@ -718,4 +744,10 @@ func (s *Settings) IsHubConfigured() bool {
 // Returns false if not configured or explicitly disabled.
 func (s *Settings) IsHubEnabled() bool {
 	return s.Hub != nil && s.Hub.Enabled != nil && *s.Hub.Enabled
+}
+
+// IsHubLocalOnly returns true if the grove is configured for local-only mode.
+// When true, Hub sync checks will error with guidance to use --no-hub.
+func (s *Settings) IsHubLocalOnly() bool {
+	return s.Hub != nil && s.Hub.LocalOnly != nil && *s.Hub.LocalOnly
 }

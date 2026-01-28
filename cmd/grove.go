@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/harness"
+	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/util"
 	"github.com/spf13/cobra"
 )
@@ -42,6 +46,13 @@ With --global, it initializes in the user's home folder.`,
 				return fmt.Errorf("failed to initialize global config: %w", err)
 			}
 			fmt.Println("scion grove successfully initialized.")
+
+			// Prompt for Hub registration if Hub is configured
+			if err := promptHubRegistration(true); err != nil {
+				// Non-fatal: just log the error
+				fmt.Printf("Note: %v\n", err)
+			}
+
 			return nil
 		}
 
@@ -85,8 +96,130 @@ With --global, it initializes in the user's home folder.`,
 
 		fmt.Println("scion grove successfully initialized.")
 		fmt.Printf("Grove ID: %s\n", groveID)
+
+		// Prompt for Hub registration if Hub is configured
+		if err := promptHubRegistration(false); err != nil {
+			// Non-fatal: just log the error
+			fmt.Printf("Note: %v\n", err)
+		}
+
 		return nil
 	},
+}
+
+// promptHubRegistration checks if Hub is configured and prompts to register the grove.
+func promptHubRegistration(isGlobal bool) error {
+	// Skip if --no-hub is set
+	if noHub {
+		return nil
+	}
+
+	// Resolve grove path
+	var gp string
+	if isGlobal {
+		gp = "global"
+	}
+	resolvedPath, _, err := config.ResolveGrovePath(gp)
+	if err != nil {
+		return nil // Silently skip if we can't resolve path
+	}
+
+	settings, err := config.LoadSettings(resolvedPath)
+	if err != nil {
+		return nil // Silently skip if we can't load settings
+	}
+
+	// Check if Hub endpoint is configured (but not necessarily enabled)
+	if !settings.IsHubConfigured() {
+		return nil // No Hub endpoint configured, skip
+	}
+
+	// Prompt for registration
+	if hubsync.ShowInitRegistrationPrompt(autoConfirm) {
+		// Create Hub client and register
+		client, err := getHubClient(settings)
+		if err != nil {
+			return fmt.Errorf("failed to create Hub client: %w", err)
+		}
+
+		// Check health first
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := client.Health(ctx); err != nil {
+			return fmt.Errorf("Hub is not responding: %w", err)
+		}
+
+		// Get grove info
+		var groveName string
+		var gitRemote string
+		groveID := settings.GroveID
+
+		if isGlobal {
+			groveName = "global"
+		} else {
+			gitRemote = util.GetGitRemote()
+			if gitRemote != "" {
+				groveName = util.ExtractRepoName(gitRemote)
+			} else {
+				groveName = filepath.Base(filepath.Dir(resolvedPath))
+			}
+		}
+
+		// Get hostname
+		hostName, _ := os.Hostname()
+		if hostName == "" {
+			hostName = "local-host"
+		}
+
+		// Get existing host ID if available
+		var existingHostID string
+		if settings.Hub != nil {
+			existingHostID = settings.Hub.HostID
+		}
+
+		// Register
+		req := &hubclient.RegisterGroveRequest{
+			ID:        groveID,
+			Name:      groveName,
+			GitRemote: util.NormalizeGitRemote(gitRemote),
+			Path:      resolvedPath,
+			Mode:      "connected",
+			Host: &hubclient.HostInfo{
+				ID:   existingHostID,
+				Name: hostName,
+			},
+		}
+
+		ctxReg, cancelReg := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelReg()
+
+		resp, err := client.Groves().Register(ctxReg, req)
+		if err != nil {
+			return fmt.Errorf("registration failed: %w", err)
+		}
+
+		// Save credentials
+		if resp.HostToken != "" {
+			_ = config.UpdateSetting(resolvedPath, "hub.hostToken", resp.HostToken, isGlobal)
+		}
+		if resp.Host != nil && resp.Host.ID != "" {
+			_ = config.UpdateSetting(resolvedPath, "hub.hostId", resp.Host.ID, isGlobal)
+		}
+
+		// Enable Hub integration
+		_ = config.UpdateSetting(resolvedPath, "hub.enabled", "true", isGlobal)
+
+		if resp.Created {
+			fmt.Printf("Created new grove on Hub: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+		} else {
+			fmt.Printf("Linked to existing grove on Hub: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+		}
+		if resp.Host != nil {
+			fmt.Printf("Host registered: %s (ID: %s)\n", resp.Host.Name, resp.Host.ID)
+		}
+	}
+
+	return nil
 }
 
 func init() {

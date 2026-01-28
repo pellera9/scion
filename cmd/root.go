@@ -21,6 +21,7 @@ var (
 	outputFormat string
 	hubEndpoint  string // Hub API endpoint override
 	noHub        bool   // Disable Hub integration for this invocation
+	autoConfirm  bool   // Auto-confirm prompts (non-interactive mode)
 	autoHelp     = true // Default to true, updated in PersistentPreRunE
 )
 
@@ -146,6 +147,9 @@ func init() {
 	// Hub integration flags
 	rootCmd.PersistentFlags().StringVar(&hubEndpoint, "hub", "", "Hub API endpoint URL (overrides SCION_HUB_ENDPOINT)")
 	rootCmd.PersistentFlags().BoolVar(&noHub, "no-hub", false, "Disable Hub integration for this invocation (local-only mode)")
+
+	// Non-interactive mode flag
+	rootCmd.PersistentFlags().BoolVarP(&autoConfirm, "yes", "y", false, "Auto-confirm prompts (non-interactive mode)")
 }
 
 // GetHubEndpoint returns the effective Hub endpoint based on flags and settings.
@@ -166,6 +170,16 @@ func GetHubEndpoint(settings interface{ GetHubEndpoint() string }) string {
 // IsHubEnabled returns true if Hub integration is enabled for this invocation.
 func IsHubEnabled() bool {
 	return !noHub
+}
+
+// IsNoHub returns true if Hub integration is explicitly disabled for this invocation.
+func IsNoHub() bool {
+	return noHub
+}
+
+// IsAutoConfirm returns true if prompts should be auto-confirmed (non-interactive mode).
+func IsAutoConfirm() bool {
+	return autoConfirm
 }
 
 // printDevAuthWarningIfNeeded checks if dev auth is being used with Hub and prints a warning.

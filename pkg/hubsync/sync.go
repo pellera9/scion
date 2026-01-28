@@ -1,0 +1,442 @@
+package hubsync
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/util"
+)
+
+// SyncResult represents the result of comparing local and Hub agents.
+type SyncResult struct {
+	ToRegister []string // Local agents to register on Hub
+	ToRemove   []string // Hub agents (for this host) to remove
+	InSync     []string // Agents already in sync
+}
+
+// IsInSync returns true if there are no agents to sync.
+func (r *SyncResult) IsInSync() bool {
+	return len(r.ToRegister) == 0 && len(r.ToRemove) == 0
+}
+
+// HubContext holds the context for Hub operations.
+type HubContext struct {
+	Client     hubclient.Client
+	Endpoint   string
+	Settings   *config.Settings
+	GroveID    string
+	HostID     string
+	GrovePath  string
+	IsGlobal   bool
+}
+
+// EnsureHubReadyOptions configures the behavior of EnsureHubReady.
+type EnsureHubReadyOptions struct {
+	// AutoConfirm auto-confirms all prompts.
+	AutoConfirm bool
+	// NoHub disables Hub integration for this invocation.
+	NoHub bool
+	// SkipSync skips agent synchronization check.
+	SkipSync bool
+}
+
+// EnsureHubReady performs all Hub pre-flight checks before agent operations.
+// Returns HubContext if Hub is ready, nil if Hub should not be used.
+// This function will:
+// 1. Check --no-hub flag
+// 2. Load settings
+// 3. Check hub.local_only setting
+// 4. Check hub.enabled setting
+// 5. Ensure grove_id exists (generate if missing)
+// 6. Check Hub connectivity
+// 7. Check grove registration (prompt to register if not)
+// 8. Compare and sync agents (unless SkipSync is true)
+func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, error) {
+	// Check if --no-hub flag is set
+	if opts.NoHub {
+		return nil, nil
+	}
+
+	// Resolve grove path
+	resolvedPath, isGlobal, err := config.ResolveGrovePath(grovePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve grove path: %w", err)
+	}
+
+	settings, err := config.LoadSettings(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load settings: %w", err)
+	}
+
+	// Check if hub.local_only is set
+	if settings.IsHubLocalOnly() {
+		return nil, fmt.Errorf("this grove is configured for local-only mode (hub.local_only=true)\n\n" +
+			"To perform this operation:\n" +
+			"  - Use --no-hub flag to skip Hub integration\n" +
+			"  - Or set hub.local_only=false to enable Hub sync checks")
+	}
+
+	// Check if hub is explicitly enabled
+	if !settings.IsHubEnabled() {
+		return nil, nil
+	}
+
+	// Hub is enabled - from here on, any failure is an error (no silent fallback)
+	endpoint := getEndpoint(settings)
+	if endpoint == "" {
+		return nil, wrapHubError(fmt.Errorf("Hub is enabled but no endpoint configured.\n\nConfigure via: scion config set hub.endpoint <url>"))
+	}
+
+	// Ensure grove_id exists
+	groveID := settings.GroveID
+	if groveID == "" {
+		// Generate grove_id for groves that don't have one
+		groveID = config.GenerateGroveIDForDir(filepath.Dir(resolvedPath))
+		if err := config.UpdateSetting(resolvedPath, "grove_id", groveID, isGlobal); err != nil {
+			return nil, fmt.Errorf("failed to save grove_id: %w", err)
+		}
+		// Reload settings to get the updated grove_id
+		settings, err = config.LoadSettings(resolvedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reload settings: %w", err)
+		}
+	}
+
+	// Create Hub client
+	client, err := createHubClient(settings, endpoint)
+	if err != nil {
+		return nil, wrapHubError(fmt.Errorf("failed to create Hub client: %w", err))
+	}
+
+	// Check health
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := client.Health(ctx); err != nil {
+		return nil, wrapHubError(fmt.Errorf("Hub at %s is not responding: %w", endpoint, err))
+	}
+
+	// Get host ID
+	hostID := ""
+	if settings.Hub != nil {
+		hostID = settings.Hub.HostID
+	}
+
+	hubCtx := &HubContext{
+		Client:    client,
+		Endpoint:  endpoint,
+		Settings:  settings,
+		GroveID:   groveID,
+		HostID:    hostID,
+		GrovePath: resolvedPath,
+		IsGlobal:  isGlobal,
+	}
+
+	// Check grove registration
+	registered, err := isGroveRegistered(ctx, hubCtx)
+	if err != nil {
+		return nil, wrapHubError(err)
+	}
+
+	if !registered {
+		// Get grove name for the prompt
+		groveName := getGroveName(resolvedPath, isGlobal)
+		if ShowRegistrationPrompt(groveName, opts.AutoConfirm) {
+			if err := registerGrove(context.Background(), hubCtx, groveName, isGlobal); err != nil {
+				return nil, wrapHubError(fmt.Errorf("failed to register grove: %w", err))
+			}
+			// Reload settings to get updated host ID
+			settings, err = config.LoadSettings(resolvedPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to reload settings: %w", err)
+			}
+			hubCtx.Settings = settings
+			if settings.Hub != nil {
+				hubCtx.HostID = settings.Hub.HostID
+			}
+		} else {
+			return nil, fmt.Errorf("grove must be registered with Hub to perform this operation\n\n" +
+				"Register the grove: scion hub register\n" +
+				"Or use local-only mode: scion --no-hub <command>")
+		}
+	}
+
+	// Skip sync if requested
+	if opts.SkipSync {
+		return hubCtx, nil
+	}
+
+	// Compare and sync agents
+	syncResult, err := CompareAgents(context.Background(), hubCtx)
+	if err != nil {
+		return nil, wrapHubError(fmt.Errorf("failed to compare agents: %w", err))
+	}
+
+	if !syncResult.IsInSync() {
+		if ShowSyncPlan(syncResult, opts.AutoConfirm) {
+			if err := ExecuteSync(context.Background(), hubCtx, syncResult); err != nil {
+				return nil, wrapHubError(fmt.Errorf("failed to sync agents: %w", err))
+			}
+		} else {
+			return nil, fmt.Errorf("agents must be synchronized with Hub to perform this operation\n\n" +
+				"Sync agents: scion hub sync\n" +
+				"Or use local-only mode: scion --no-hub <command>")
+		}
+	}
+
+	return hubCtx, nil
+}
+
+// CompareAgents compares local agents with Hub agents for the current host.
+func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error) {
+	result := &SyncResult{}
+
+	// Get local agents
+	localAgents, err := GetLocalAgents(hubCtx.GrovePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local agents: %w", err)
+	}
+
+	// Get Hub agents for this grove and host
+	ctxTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	opts := &hubclient.ListAgentsOptions{
+		GroveID:       hubCtx.GroveID,
+		RuntimeHostID: hubCtx.HostID,
+	}
+
+	resp, err := hubCtx.Client.Agents().List(ctxTimeout, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Hub agents: %w", err)
+	}
+
+	// Build map of Hub agents
+	hubAgentMap := make(map[string]bool)
+	for _, a := range resp.Agents {
+		hubAgentMap[a.Name] = true
+	}
+
+	// Build map of local agents
+	localAgentMap := make(map[string]bool)
+	for _, name := range localAgents {
+		localAgentMap[name] = true
+	}
+
+	// Find agents to register (local but not on Hub)
+	for _, name := range localAgents {
+		if hubAgentMap[name] {
+			result.InSync = append(result.InSync, name)
+		} else {
+			result.ToRegister = append(result.ToRegister, name)
+		}
+	}
+
+	// Find agents to remove (on Hub for this host but not local)
+	for _, a := range resp.Agents {
+		if !localAgentMap[a.Name] {
+			result.ToRemove = append(result.ToRemove, a.Name)
+		}
+	}
+
+	return result, nil
+}
+
+// ExecuteSync performs the synchronization based on SyncResult.
+func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult) error {
+	ctxTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	// Register local agents on Hub
+	for _, name := range result.ToRegister {
+		fmt.Printf("Registering agent '%s' on Hub...\n", name)
+		req := &hubclient.CreateAgentRequest{
+			Name:          name,
+			GroveID:       hubCtx.GroveID,
+			RuntimeHostID: hubCtx.HostID,
+		}
+		if _, err := hubCtx.Client.Agents().Create(ctxTimeout, req); err != nil {
+			return fmt.Errorf("failed to register agent '%s': %w", name, err)
+		}
+	}
+
+	// Remove Hub agents that are not on this host
+	for _, name := range result.ToRemove {
+		fmt.Printf("Removing agent '%s' from Hub...\n", name)
+		if err := hubCtx.Client.Agents().Delete(ctxTimeout, name, nil); err != nil {
+			return fmt.Errorf("failed to remove agent '%s': %w", name, err)
+		}
+	}
+
+	if len(result.ToRegister) > 0 || len(result.ToRemove) > 0 {
+		fmt.Println("Agent synchronization complete.")
+	}
+
+	return nil
+}
+
+// GetLocalAgents returns agent names from .scion/agents/.
+func GetLocalAgents(grovePath string) ([]string, error) {
+	agentsDir := filepath.Join(grovePath, "agents")
+
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var agents []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// Check if it has a scion-agent config file (YAML or JSON)
+		yamlPath := filepath.Join(agentsDir, entry.Name(), "scion-agent.yaml")
+		jsonPath := filepath.Join(agentsDir, entry.Name(), "scion-agent.json")
+		if _, err := os.Stat(yamlPath); err == nil {
+			agents = append(agents, entry.Name())
+		} else if _, err := os.Stat(jsonPath); err == nil {
+			agents = append(agents, entry.Name())
+		}
+	}
+
+	return agents, nil
+}
+
+// isGroveRegistered checks if the grove is registered with the Hub.
+func isGroveRegistered(ctx context.Context, hubCtx *HubContext) (bool, error) {
+	ctxTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Try to get the grove by ID
+	_, err := hubCtx.Client.Groves().Get(ctxTimeout, hubCtx.GroveID)
+	if err != nil {
+		// Check if it's a "not found" error
+		errStr := err.Error()
+		if containsIgnoreCase(errStr, "404") || containsIgnoreCase(errStr, "not found") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check grove registration: %w", err)
+	}
+
+	return true, nil
+}
+
+// registerGrove registers the grove with the Hub.
+func registerGrove(ctx context.Context, hubCtx *HubContext, groveName string, isGlobal bool) error {
+	ctxTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Get git remote (optional)
+	var gitRemote string
+	if !isGlobal {
+		gitRemote = util.GetGitRemote()
+	}
+
+	// Get hostname
+	hostName, err := os.Hostname()
+	if err != nil {
+		hostName = "local-host"
+	}
+
+	req := &hubclient.RegisterGroveRequest{
+		ID:        hubCtx.GroveID,
+		Name:      groveName,
+		GitRemote: util.NormalizeGitRemote(gitRemote),
+		Path:      hubCtx.GrovePath,
+		Mode:      "connected",
+		Host: &hubclient.HostInfo{
+			ID:   hubCtx.HostID,
+			Name: hostName,
+		},
+	}
+
+	resp, err := hubCtx.Client.Groves().Register(ctxTimeout, req)
+	if err != nil {
+		return err
+	}
+
+	// Save the host token and ID
+	if resp.HostToken != "" {
+		if err := config.UpdateSetting(hubCtx.GrovePath, "hub.hostToken", resp.HostToken, isGlobal); err != nil {
+			fmt.Printf("Warning: failed to save host token: %v\n", err)
+		}
+	}
+	if resp.Host != nil && resp.Host.ID != "" {
+		if err := config.UpdateSetting(hubCtx.GrovePath, "hub.hostId", resp.Host.ID, isGlobal); err != nil {
+			fmt.Printf("Warning: failed to save host ID: %v\n", err)
+		}
+	}
+
+	if resp.Created {
+		fmt.Printf("Created new grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+	} else {
+		fmt.Printf("Linked to existing grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+	}
+	if resp.Host != nil {
+		fmt.Printf("Host registered: %s (ID: %s)\n", resp.Host.Name, resp.Host.ID)
+	}
+
+	return nil
+}
+
+// getGroveName returns a human-readable grove name.
+func getGroveName(grovePath string, isGlobal bool) string {
+	if isGlobal {
+		return "global"
+	}
+	gitRemote := util.GetGitRemote()
+	if gitRemote != "" {
+		return util.ExtractRepoName(gitRemote)
+	}
+	return filepath.Base(filepath.Dir(grovePath))
+}
+
+// getEndpoint returns the Hub endpoint from settings.
+func getEndpoint(settings *config.Settings) string {
+	if settings.Hub != nil {
+		return settings.Hub.Endpoint
+	}
+	return ""
+}
+
+// createHubClient creates a new Hub client with proper authentication.
+func createHubClient(settings *config.Settings, endpoint string) (hubclient.Client, error) {
+	var opts []hubclient.Option
+
+	// Add authentication - check in priority order
+	if settings.Hub != nil {
+		if settings.Hub.Token != "" {
+			opts = append(opts, hubclient.WithBearerToken(settings.Hub.Token))
+		} else if settings.Hub.APIKey != "" {
+			opts = append(opts, hubclient.WithAPIKey(settings.Hub.APIKey))
+		} else {
+			// Fallback to auto dev auth
+			opts = append(opts, hubclient.WithAutoDevAuth())
+		}
+	} else {
+		opts = append(opts, hubclient.WithAutoDevAuth())
+	}
+
+	opts = append(opts, hubclient.WithTimeout(30*time.Second))
+
+	return hubclient.New(endpoint, opts...)
+}
+
+// wrapHubError wraps a Hub error with guidance to disable Hub integration.
+func wrapHubError(err error) error {
+	return fmt.Errorf("%w\n\nTo use local-only mode, use: scion --no-hub <command>", err)
+}
+
+// containsIgnoreCase checks if a string contains a substring (case-insensitive).
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/util"
 	"github.com/spf13/cobra"
 )
@@ -26,9 +27,13 @@ var (
 
 // HubContext holds the context for Hub operations.
 type HubContext struct {
-	Client   hubclient.Client
-	Endpoint string
-	Settings *config.Settings
+	Client    hubclient.Client
+	Endpoint  string
+	Settings  *config.Settings
+	GroveID   string
+	HostID    string
+	GrovePath string
+	IsGlobal  bool
 }
 
 // CheckHubAvailability checks if Hub integration is enabled and returns a ready-to-use
@@ -37,7 +42,47 @@ type HubContext struct {
 // IMPORTANT: When Hub is enabled, this function will return an error if the Hub is
 // unavailable or misconfigured. There is NO silent fallback to local mode - this is
 // by design to ensure users always know which mode they're operating in.
+//
+// This function now performs full Hub sync checks via hubsync.EnsureHubReady:
+// - Verifies grove registration (prompts to register if not)
+// - Compares local and Hub agents (prompts to sync if mismatched)
 func CheckHubAvailability(grovePath string) (*HubContext, error) {
+	return CheckHubAvailabilityWithOptions(grovePath, false)
+}
+
+// CheckHubAvailabilityWithOptions is like CheckHubAvailability but allows skipping sync.
+func CheckHubAvailabilityWithOptions(grovePath string, skipSync bool) (*HubContext, error) {
+	opts := hubsync.EnsureHubReadyOptions{
+		AutoConfirm: autoConfirm,
+		NoHub:       noHub,
+		SkipSync:    skipSync,
+	}
+
+	hubCtx, err := hubsync.EnsureHubReady(grovePath, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if hubCtx == nil {
+		return nil, nil
+	}
+
+	// Convert hubsync.HubContext to cmd.HubContext
+	return &HubContext{
+		Client:    hubCtx.Client,
+		Endpoint:  hubCtx.Endpoint,
+		Settings:  hubCtx.Settings,
+		GroveID:   hubCtx.GroveID,
+		HostID:    hubCtx.HostID,
+		GrovePath: hubCtx.GrovePath,
+		IsGlobal:  hubCtx.IsGlobal,
+	}, nil
+}
+
+// CheckHubAvailabilitySimple checks Hub availability without sync checks.
+// Use this for read-only operations that don't need full sync verification.
+// Deprecated: prefer CheckHubAvailabilityWithOptions with skipSync=true
+func CheckHubAvailabilitySimple(grovePath string) (*HubContext, error) {
 	// Check if --no-hub flag is set
 	if noHub {
 		return nil, nil
@@ -47,6 +92,14 @@ func CheckHubAvailability(grovePath string) (*HubContext, error) {
 	if err != nil {
 		// If we can't load settings, return the error
 		return nil, err
+	}
+
+	// Check if hub.local_only is set
+	if settings.IsHubLocalOnly() {
+		return nil, fmt.Errorf("this grove is configured for local-only mode (hub.local_only=true)\n\n" +
+			"To perform this operation:\n" +
+			"  - Use --no-hub flag to skip Hub integration\n" +
+			"  - Or set hub.local_only=false to enable Hub sync checks")
 	}
 
 	// Check if hub is explicitly enabled
@@ -78,6 +131,7 @@ func CheckHubAvailability(grovePath string) (*HubContext, error) {
 		Client:   client,
 		Endpoint: endpoint,
 		Settings: settings,
+		GroveID:  settings.GroveID,
 	}, nil
 }
 
@@ -91,14 +145,20 @@ func wrapHubError(err error) error {
 	return fmt.Errorf("%w\n\nTo use local-only mode, run: scion hub disable", err)
 }
 
-// GetGroveID looks up the grove ID from settings or the Hub.
+// GetGroveID looks up the grove ID from HubContext or settings.
 // Priority:
-//  1. Local grove_id from settings (for non-git groves or explicit configuration)
-//  2. Git remote lookup via Hub API
+//  1. GroveID field in HubContext (set by EnsureHubReady)
+//  2. Local grove_id from settings (for non-git groves or explicit configuration)
+//  3. Git remote lookup via Hub API
 //
 // Returns the grove ID if found, or an error if the grove is not registered.
 func GetGroveID(hubCtx *HubContext) (string, error) {
-	// First, check if there's a local grove_id in settings
+	// First, check if GroveID is already set in the context
+	if hubCtx.GroveID != "" {
+		return hubCtx.GroveID, nil
+	}
+
+	// Check if there's a local grove_id in settings
 	if hubCtx.Settings != nil && hubCtx.Settings.GroveID != "" {
 		return hubCtx.Settings.GroveID, nil
 	}
