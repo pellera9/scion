@@ -38,6 +38,8 @@ func init() {
 
 	startCmd.Flags().StringVarP(&workspace, "workspace", "w", "", "Host path to mount as /workspace")
 
+	startCmd.Flags().StringVar(&runtimeHostID, "host", "", "Preferred runtime host ID or name")
+
 	// Template resolution flags for Hub mode (Section 9.4)
 	startCmd.Flags().BoolVar(&uploadTemplate, "upload-template", false, "Automatically upload local template to Hub if not found")
 	startCmd.Flags().BoolVar(&noUpload, "no-upload", false, "Fail if template requires upload (never prompt)")

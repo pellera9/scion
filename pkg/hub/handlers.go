@@ -3172,10 +3172,15 @@ func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, 
 
 	// Case 1: Explicit runtime host specified
 	if requestedHostID != "" {
-		// Check if the requested host is a contributor to this grove
+		// Check if the requested host is a contributor to this grove (by ID, Name, or Slug)
 		for _, c := range allContributors {
-			if c.HostID == requestedHostID {
-				return requestedHostID, nil
+			if c.HostID == requestedHostID || c.HostName == requestedHostID {
+				return c.HostID, nil
+			}
+			// Fetch host to check slug
+			host, err := s.store.GetRuntimeHost(ctx, c.HostID)
+			if err == nil && host.Slug == requestedHostID {
+				return host.ID, nil
 			}
 		}
 		// Requested host is not a contributor

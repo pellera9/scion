@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,12 +20,13 @@ import (
 )
 
 var (
-	templateName string
-	agentImage   string
-	noAuth       bool
-	attach       bool
-	branch       string
-	workspace    string
+	templateName  string
+	agentImage    string
+	noAuth        bool
+	attach        bool
+	branch        string
+	workspace     string
+	runtimeHostID string
 )
 
 // HubContext holds the context for Hub operations.
@@ -332,12 +335,13 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 
 	// Build create request (Hub creates and starts in one operation)
 	req := &hubclient.CreateAgentRequest{
-		Name:     agentName,
-		GroveID:  groveID,
-		Template: resolvedTemplate,
-		Task:     task,
-		Branch:   branch,
-		Resume:   resume,
+		Name:          agentName,
+		GroveID:       groveID,
+		Template:      resolvedTemplate,
+		RuntimeHostID: runtimeHostID,
+		Task:          task,
+		Branch:        branch,
+		Resume:        resume,
 	}
 
 	// Build config if we have image override or debug mode
@@ -362,7 +366,7 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 	}
 	fmt.Printf("%s agent '%s'...\n", action, agentName)
 
-	resp, err := hubCtx.Client.GroveAgents(groveID).Create(ctx, req)
+	resp, err := createAgentWithHostResolution(ctx, hubCtx, groveID, req)
 	if err != nil {
 		return wrapHubError(fmt.Errorf("failed to start agent via Hub: %w", err))
 	}
@@ -381,4 +385,63 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 	}
 
 	return nil
+}
+
+func createAgentWithHostResolution(ctx context.Context, hubCtx *HubContext, groveID string, req *hubclient.CreateAgentRequest) (*hubclient.CreateAgentResponse, error) {
+	for {
+		resp, err := hubCtx.Client.GroveAgents(groveID).Create(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+
+		var apiErr *apiclient.APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != "no_runtime_host" {
+			return nil, err
+		}
+
+		// Handle ambiguous host
+		availableHosts, ok := apiErr.Details["availableHosts"].([]interface{})
+		if !ok || len(availableHosts) == 0 {
+			return nil, err
+		}
+
+		// Only prompt if interactive and not auto-confirm
+		if autoConfirm || !util.IsTerminal() {
+			return nil, err
+		}
+
+		fmt.Printf("\nMultiple runtime hosts available for grove:\n")
+		for i, h := range availableHosts {
+			hostMap, _ := h.(map[string]interface{})
+			name, _ := hostMap["name"].(string)
+			status, _ := hostMap["status"].(string)
+			fmt.Printf("  [%d] %s (%s)\n", i+1, name, status)
+		}
+		fmt.Println()
+
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			fmt.Print("Select a host (or 'c' to cancel): ")
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return nil, fmt.Errorf("failed to read input: %w", err)
+			}
+
+			input = strings.TrimSpace(strings.ToLower(input))
+			if input == "c" || input == "cancel" {
+				return nil, fmt.Errorf("operation cancelled")
+			}
+
+			var choice int
+			if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(availableHosts) {
+				fmt.Printf("Invalid choice. Please enter 1-%d.\n", len(availableHosts))
+				continue
+			}
+
+			selectedHost, _ := availableHosts[choice-1].(map[string]interface{})
+			req.RuntimeHostID, _ = selectedHost["id"].(string)
+			break
+		}
+		// Loop and retry with selected host
+	}
 }

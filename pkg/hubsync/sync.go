@@ -1,8 +1,10 @@
 package hubsync
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -300,7 +302,7 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 
 	if !effectiveSyncResult.IsInSync() {
 		if ShowSyncPlan(effectiveSyncResult, opts.AutoConfirm) {
-			if err := ExecuteSync(context.Background(), hubCtx, effectiveSyncResult); err != nil {
+			if err := ExecuteSync(context.Background(), hubCtx, effectiveSyncResult, opts.AutoConfirm); err != nil {
 				return nil, wrapHubError(fmt.Errorf("failed to sync agents: %w", err))
 			}
 		} else {
@@ -391,7 +393,7 @@ func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error)
 }
 
 // ExecuteSync performs the synchronization based on SyncResult.
-func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult) error {
+func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult, autoConfirm bool) error {
 	ctxTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -407,12 +409,62 @@ func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult) er
 			Name:    name,
 			GroveID: hubCtx.GroveID,
 		}
-		resp, err := hubCtx.Client.GroveAgents(hubCtx.GroveID).Create(ctxTimeout, req)
-		if err != nil {
-			debugf("Failed to register agent '%s': %v", name, err)
-			return fmt.Errorf("failed to register agent '%s': %w", name, err)
+
+		for {
+			resp, err := hubCtx.Client.GroveAgents(hubCtx.GroveID).Create(ctxTimeout, req)
+			if err == nil {
+				debugf("Agent '%s' created with ID: %s", name, resp.Agent.ID)
+				break
+			}
+
+			var apiErr *apiclient.APIError
+			if !errors.As(err, &apiErr) || apiErr.Code != "no_runtime_host" {
+				debugf("Failed to register agent '%s': %v", name, err)
+				return fmt.Errorf("failed to register agent '%s': %w", name, err)
+			}
+
+			// Handle ambiguous host
+			availableHosts, ok := apiErr.Details["availableHosts"].([]interface{})
+			if !ok || len(availableHosts) == 0 {
+				return fmt.Errorf("failed to register agent '%s': %w", name, err)
+			}
+
+			// Only prompt if interactive and not auto-confirm
+			if autoConfirm || !util.IsTerminal() {
+				return fmt.Errorf("failed to register agent '%s': multiple runtime hosts available, specify a host via Hub config or --host flag (original error: %w)", name, err)
+			}
+
+			fmt.Printf("\nMultiple runtime hosts available for grove:\n")
+			for i, h := range availableHosts {
+				hostMap, _ := h.(map[string]interface{})
+				name, _ := hostMap["name"].(string)
+				status, _ := hostMap["status"].(string)
+				fmt.Printf("  [%d] %s (%s)\n", i+1, name, status)
+			}
+			fmt.Println()
+
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Select a host for agent registration (or 'c' to cancel): ")
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read input: %w", err)
+			}
+
+			input = strings.TrimSpace(strings.ToLower(input))
+			if input == "c" || input == "cancel" {
+				return fmt.Errorf("registration cancelled")
+			}
+
+			var choice int
+			if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(availableHosts) {
+				fmt.Printf("Invalid choice. Please enter 1-%d.\n", len(availableHosts))
+				continue
+			}
+
+			selectedHost, _ := availableHosts[choice-1].(map[string]interface{})
+			req.RuntimeHostID, _ = selectedHost["id"].(string)
+			// Loop and retry with selected host
 		}
-		debugf("Agent '%s' created with ID: %s", name, resp.Agent.ID)
 	}
 
 	// Remove Hub agents that are not on this host

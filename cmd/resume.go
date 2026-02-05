@@ -28,6 +28,8 @@ func init() {
 	resumeCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication propagation")
 	resumeCmd.Flags().BoolVarP(&attach, "attach", "a", false, "Attach to the agent TTY after starting")
 
+	resumeCmd.Flags().StringVar(&runtimeHostID, "host", "", "Preferred runtime host ID or name")
+
 	// Template resolution flags for Hub mode (Section 9.4)
 	resumeCmd.Flags().BoolVar(&uploadTemplate, "upload-template", false, "Automatically upload local template to Hub if not found")
 	resumeCmd.Flags().BoolVar(&noUpload, "no-upload", false, "Fail if template requires upload (never prompt)")
