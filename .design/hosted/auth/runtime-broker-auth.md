@@ -748,4 +748,4 @@ Rationale:
 - [Auth Overview](auth-overview.md) - Identity model and token types
 - [Agent Authentication](sciontool-auth.md) - Agent-to-Hub JWT
 - [Hosted Architecture](../hosted-architecture.md) - System context
-- [RuntimeBroker Websockets](../runtimebroker-websocket.md) - Runtimehost websocket architecture details
+- [RuntimeBroker Websockets](../runtimebroker-websocket.md) - RuntimeBroker websocket architecture details
