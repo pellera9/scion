@@ -382,7 +382,7 @@ type EnvVar struct {
 	Value string `json:"value"` // Variable value
 
 	// Scope
-	Scope   string `json:"scope"`   // user, grove, runtime_host
+	Scope   string `json:"scope"`   // user, grove, runtime_broker
 	ScopeID string `json:"scopeId"` // ID of the scoped entity
 
 	// Metadata
@@ -408,7 +408,7 @@ type Secret struct {
 	EncryptedValue string `json:"-"` // Encrypted value (never serialized)
 
 	// Scope
-	Scope   string `json:"scope"`   // user, grove, runtime_host
+	Scope   string `json:"scope"`   // user, grove, runtime_broker
 	ScopeID string `json:"scopeId"` // ID of the scoped entity
 
 	// Metadata

@@ -312,7 +312,7 @@ type EnvVarStore interface {
 
 // EnvVarFilter defines criteria for filtering environment variables.
 type EnvVarFilter struct {
-	Scope   string // Required: user, grove, runtime_host
+	Scope   string // Required: user, grove, runtime_broker
 	ScopeID string // Required: ID of the scoped entity
 	Key     string // Optional: filter by specific key
 }
@@ -353,7 +353,7 @@ type SecretStore interface {
 
 // SecretFilter defines criteria for filtering secrets.
 type SecretFilter struct {
-	Scope   string // Required: user, grove, runtime_host
+	Scope   string // Required: user, grove, runtime_broker
 	ScopeID string // Required: ID of the scoped entity
 	Key     string // Optional: filter by specific key
 }

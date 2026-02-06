@@ -334,7 +334,7 @@ func TestGroveLookupCaseInsensitive(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestRuntimeHostLookupByName(t *testing.T) {
+func TestRuntimeBrokerLookupByName(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
@@ -372,7 +372,7 @@ func TestRuntimeHostLookupByName(t *testing.T) {
 // RuntimeBroker Tests
 // ============================================================================
 
-func TestRuntimeHostCRUD(t *testing.T) {
+func TestRuntimeBrokerCRUD(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
@@ -434,7 +434,7 @@ func TestRuntimeHostCRUD(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestRuntimeHostList(t *testing.T) {
+func TestRuntimeBrokerList(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 

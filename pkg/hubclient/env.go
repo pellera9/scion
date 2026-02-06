@@ -29,8 +29,8 @@ type envService struct {
 
 // ListEnvOptions configures environment variable listing.
 type ListEnvOptions struct {
-	Scope   string // user, grove, runtime_host (default: user)
-	ScopeID string // ID of the scoped entity (required for grove/runtime_host)
+	Scope   string // user, grove, runtime_broker (default: user)
+	ScopeID string // ID of the scoped entity (required for grove/runtime_broker)
 	Key     string // Optional: filter by specific key
 }
 
@@ -43,15 +43,15 @@ type ListEnvResponse struct {
 
 // EnvScopeOptions specifies the scope for get/delete operations.
 type EnvScopeOptions struct {
-	Scope   string // user, grove, runtime_host (default: user)
-	ScopeID string // ID of the scoped entity (required for grove/runtime_host)
+	Scope   string // user, grove, runtime_broker (default: user)
+	ScopeID string // ID of the scoped entity (required for grove/runtime_broker)
 }
 
 // SetEnvRequest is the request for setting an environment variable.
 type SetEnvRequest struct {
 	Value       string `json:"value"`                 // Required: variable value
 	Scope       string `json:"scope,omitempty"`       // Scope type (default: user)
-	ScopeID     string `json:"scopeId,omitempty"`     // Required for grove/runtime_host scope
+	ScopeID     string `json:"scopeId,omitempty"`     // Required for grove/runtime_broker scope
 	Description string `json:"description,omitempty"` // Optional description
 	Sensitive   bool   `json:"sensitive,omitempty"`   // Mask value in responses
 }

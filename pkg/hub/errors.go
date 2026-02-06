@@ -179,21 +179,21 @@ func GatewayTimeout(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusGatewayTimeout, ErrCodeUnavailable, message, nil)
 }
 
-// NoRuntimeHost writes a 422 Unprocessable Entity response when no runtime broker
+// NoRuntimeBroker writes a 422 Unprocessable Entity response when no runtime broker
 // is available for agent creation. Includes available hosts as alternatives.
-func NoRuntimeHost(w http.ResponseWriter, message string, availableHosts []RuntimeBrokerSummary) {
+func NoRuntimeBroker(w http.ResponseWriter, message string, availableBrokers []RuntimeBrokerSummary) {
 	details := map[string]interface{}{
-		"availableHosts": availableHosts,
+		"availableBrokers": availableBrokers,
 	}
 	writeError(w, http.StatusUnprocessableEntity, ErrCodeNoRuntimeBroker, message, details)
 }
 
 // RuntimeBrokerUnavailable writes a 503 Service Unavailable response when the
 // specified runtime broker is not available.
-func RuntimeBrokerUnavailable(w http.ResponseWriter, brokerID string, availableHosts []RuntimeBrokerSummary) {
+func RuntimeBrokerUnavailable(w http.ResponseWriter, brokerID string, availableBrokers []RuntimeBrokerSummary) {
 	details := map[string]interface{}{
 		"requestedHostId": brokerID,
-		"availableHosts":  availableHosts,
+		"availableBrokers":  availableBrokers,
 	}
 	writeError(w, http.StatusServiceUnavailable, ErrCodeRuntimeBrokerUnavail,
 		"Specified runtime broker is unavailable", details)

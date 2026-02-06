@@ -32,8 +32,8 @@ type secretService struct {
 
 // ListSecretOptions configures secret listing.
 type ListSecretOptions struct {
-	Scope   string // user, grove, runtime_host (default: user)
-	ScopeID string // ID of the scoped entity (required for grove/runtime_host)
+	Scope   string // user, grove, runtime_broker (default: user)
+	ScopeID string // ID of the scoped entity (required for grove/runtime_broker)
 }
 
 // ListSecretResponse is the response from listing secrets.
@@ -45,15 +45,15 @@ type ListSecretResponse struct {
 
 // SecretScopeOptions specifies the scope for get/delete operations.
 type SecretScopeOptions struct {
-	Scope   string // user, grove, runtime_host (default: user)
-	ScopeID string // ID of the scoped entity (required for grove/runtime_host)
+	Scope   string // user, grove, runtime_broker (default: user)
+	ScopeID string // ID of the scoped entity (required for grove/runtime_broker)
 }
 
 // SetSecretRequest is the request for setting a secret.
 type SetSecretRequest struct {
 	Value       string `json:"value"`                 // Required: secret value (write-only)
 	Scope       string `json:"scope,omitempty"`       // Scope type (default: user)
-	ScopeID     string `json:"scopeId,omitempty"`     // Required for grove/runtime_host scope
+	ScopeID     string `json:"scopeId,omitempty"`     // Required for grove/runtime_broker scope
 	Description string `json:"description,omitempty"` // Optional description
 }
 

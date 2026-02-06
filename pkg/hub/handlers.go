@@ -1595,16 +1595,16 @@ type ListRuntimeBrokersWithContributorResponse struct {
 	TotalCount int                          `json:"totalCount"`
 }
 
-func (s *Server) handleRuntimeHosts(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRuntimeBrokers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.listRuntimeHosts(w, r)
+		s.listRuntimeBrokers(w, r)
 	default:
 		MethodNotAllowed(w)
 	}
 }
 
-func (s *Server) listRuntimeHosts(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listRuntimeBrokers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	query := r.URL.Query()
 
@@ -1670,7 +1670,7 @@ func (s *Server) listRuntimeHosts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleRuntimeHostRoutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRuntimeBrokerRoutes(w http.ResponseWriter, r *http.Request) {
 	// Extract host ID and remaining path
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/runtime-brokers/")
 	if path == "" {
@@ -1711,10 +1711,10 @@ func (s *Server) handleRuntimeHostRoutes(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Delegate to the original handler for other operations
-	s.handleRuntimeHostByIDInternal(w, r, brokerID, subPath)
+	s.handleRuntimeBrokerByIDInternal(w, r, brokerID, subPath)
 }
 
-func (s *Server) handleRuntimeHostByIDInternal(w http.ResponseWriter, r *http.Request, id, subPath string) {
+func (s *Server) handleRuntimeBrokerByIDInternal(w http.ResponseWriter, r *http.Request, id, subPath string) {
 	if id == "" {
 		NotFound(w, "RuntimeBroker")
 		return
@@ -1741,17 +1741,17 @@ func (s *Server) handleRuntimeHostByIDInternal(w http.ResponseWriter, r *http.Re
 
 	switch r.Method {
 	case http.MethodGet:
-		s.getRuntimeHost(w, r, id)
+		s.getRuntimeBroker(w, r, id)
 	case http.MethodPatch:
-		s.updateRuntimeHost(w, r, id)
+		s.updateRuntimeBroker(w, r, id)
 	case http.MethodDelete:
-		s.deleteRuntimeHost(w, r, id)
+		s.deleteRuntimeBroker(w, r, id)
 	default:
 		MethodNotAllowed(w)
 	}
 }
 
-func (s *Server) handleRuntimeHostByID(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRuntimeBrokerByID(w http.ResponseWriter, r *http.Request) {
 	id, action := extractAction(r, "/api/v1/runtime-brokers")
 
 	if id == "" {
@@ -1766,17 +1766,17 @@ func (s *Server) handleRuntimeHostByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		s.getRuntimeHost(w, r, id)
+		s.getRuntimeBroker(w, r, id)
 	case http.MethodPatch:
-		s.updateRuntimeHost(w, r, id)
+		s.updateRuntimeBroker(w, r, id)
 	case http.MethodDelete:
-		s.deleteRuntimeHost(w, r, id)
+		s.deleteRuntimeBroker(w, r, id)
 	default:
 		MethodNotAllowed(w)
 	}
 }
 
-func (s *Server) getRuntimeHost(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) getRuntimeBroker(w http.ResponseWriter, r *http.Request, id string) {
 	broker, err := s.store.GetRuntimeBroker(r.Context(), id)
 	if err != nil {
 		writeErrorFromErr(w, err, "")
@@ -1786,7 +1786,7 @@ func (s *Server) getRuntimeHost(w http.ResponseWriter, r *http.Request, id strin
 	writeJSON(w, http.StatusOK, broker)
 }
 
-func (s *Server) updateRuntimeHost(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) updateRuntimeBroker(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 
 	broker, err := s.store.GetRuntimeBroker(ctx, id)
@@ -1820,7 +1820,7 @@ func (s *Server) updateRuntimeHost(w http.ResponseWriter, r *http.Request, id st
 	writeJSON(w, http.StatusOK, broker)
 }
 
-func (s *Server) deleteRuntimeHost(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) deleteRuntimeBroker(w http.ResponseWriter, r *http.Request, id string) {
 	if err := s.store.DeleteRuntimeBroker(r.Context(), id); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
@@ -3198,9 +3198,9 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 		}
 		// Default host is not available
 		if len(availableBrokers) > 0 {
-			NoRuntimeHost(w, "Default runtime broker is unavailable; specify an alternative", brokerSummaries)
+			NoRuntimeBroker(w, "Default runtime broker is unavailable; specify an alternative", brokerSummaries)
 		} else {
-			NoRuntimeHost(w, "Default runtime broker is unavailable and no alternatives found", brokerSummaries)
+			NoRuntimeBroker(w, "Default runtime broker is unavailable and no alternatives found", brokerSummaries)
 		}
 		return "", store.ErrNotFound
 	}
@@ -3215,11 +3215,11 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 	// Case 4: Multiple contributors - require explicit selection from online hosts
 	switch len(availableBrokers) {
 	case 0:
-		NoRuntimeHost(w, "No runtime brokers available for this grove; register a runtime broker first", brokerSummaries)
+		NoRuntimeBroker(w, "No runtime brokers available for this grove; register a runtime broker first", brokerSummaries)
 		return "", store.ErrNotFound
 	default:
 		// Multiple hosts available - require explicit selection
-		NoRuntimeHost(w, "Multiple runtime brokers available for this grove; specify runtimeBrokerId to select one", brokerSummaries)
+		NoRuntimeBroker(w, "Multiple runtime brokers available for this grove; specify runtimeBrokerId to select one", brokerSummaries)
 		return "", store.ErrNotFound
 	}
 }

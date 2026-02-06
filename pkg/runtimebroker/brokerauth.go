@@ -1,4 +1,4 @@
-// Package runtimehost provides the Scion Runtime Broker API server.
+// Package runtimebroker provides the Scion Runtime Broker API server.
 package runtimebroker
 
 import (

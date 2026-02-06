@@ -596,8 +596,8 @@ func (s *Server) registerRoutes() {
 	// This handler must come before the generic grove-by-id handler
 	s.mux.HandleFunc("/api/v1/groves/", s.handleGroveRoutes)
 
-	s.mux.HandleFunc("/api/v1/runtime-brokers", s.handleRuntimeHosts)
-	s.mux.HandleFunc("/api/v1/runtime-brokers/", s.handleRuntimeHostRoutes)
+	s.mux.HandleFunc("/api/v1/runtime-brokers", s.handleRuntimeBrokers)
+	s.mux.HandleFunc("/api/v1/runtime-brokers/", s.handleRuntimeBrokerRoutes)
 
 	s.mux.HandleFunc("/api/v1/templates", s.handleTemplatesV2)
 	s.mux.HandleFunc("/api/v1/templates/", s.handleTemplateByIDV2)
@@ -623,7 +623,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/brokers/", s.handleBrokerByIDRoutes)
 
 	// WebSocket control channel endpoint for Runtime Brokers
-	s.mux.HandleFunc("/api/v1/runtime-brokers/connect", s.handleRuntimeHostConnect)
+	s.mux.HandleFunc("/api/v1/runtime-brokers/connect", s.handleRuntimeBrokerConnect)
 }
 
 // applyMiddleware wraps the handler with middleware.
@@ -842,8 +842,8 @@ func extractAction(r *http.Request, prefix string) (id, action string) {
 	return
 }
 
-// handleRuntimeHostConnect handles WebSocket upgrade for Runtime Broker control channel.
-func (s *Server) handleRuntimeHostConnect(w http.ResponseWriter, r *http.Request) {
+// handleRuntimeBrokerConnect handles WebSocket upgrade for Runtime Broker control channel.
+func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Request) {
 	// Verify this is a WebSocket upgrade request
 	if !isWebSocketUpgrade(r) {
 		writeError(w, 400, ErrCodeInvalidRequest, "WebSocket upgrade required", nil)

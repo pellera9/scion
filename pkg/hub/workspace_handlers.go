@@ -476,7 +476,7 @@ type RuntimeBrokerWorkspaceApplyResponse struct {
 func tunnelWorkspaceRequest(ctx context.Context, cc *ControlChannelManager, brokerID, method, path string, reqBody interface{}, respBody interface{}) error {
 	// Check host is connected
 	if !cc.IsConnected(brokerID) {
-		return errHostNotConnected(brokerID)
+		return errBrokerNotConnected(brokerID)
 	}
 
 	// Marshal request body
@@ -503,7 +503,7 @@ func tunnelWorkspaceRequest(ctx context.Context, cc *ControlChannelManager, brok
 
 	// Check for error status codes
 	if respEnv.StatusCode >= 400 {
-		return errRuntimeHostError(respEnv.StatusCode, string(respEnv.Body))
+		return errRuntimeBrokerError(respEnv.StatusCode, string(respEnv.Body))
 	}
 
 	// Unmarshal response body
@@ -516,24 +516,24 @@ func tunnelWorkspaceRequest(ctx context.Context, cc *ControlChannelManager, brok
 	return nil
 }
 
-// errHostNotConnected returns an error indicating the host is not connected.
-func errHostNotConnected(brokerID string) error {
-	return &hostError{brokerID: brokerID, msg: "host not connected via control channel"}
+// errBrokerNotConnected returns an error indicating the host is not connected.
+func errBrokerNotConnected(brokerID string) error {
+	return &brokerError{brokerID: brokerID, msg: "broker not connected via control channel"}
 }
 
-// errRuntimeHostError returns an error from the runtime broker.
-func errRuntimeHostError(statusCode int, body string) error {
-	return &hostError{statusCode: statusCode, msg: body}
+// errRuntimeBrokerError returns an error from the runtime broker.
+func errRuntimeBrokerError(statusCode int, body string) error {
+	return &brokerError{statusCode: statusCode, msg: body}
 }
 
-// hostError represents an error from communication with a runtime broker.
-type hostError struct {
+// brokerError represents an error from communication with a runtime broker.
+type brokerError struct {
 	brokerID     string
 	statusCode int
 	msg        string
 }
 
-func (e *hostError) Error() string {
+func (e *brokerError) Error() string {
 	if e.brokerID != "" {
 		return "host " + e.brokerID + ": " + e.msg
 	}

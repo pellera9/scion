@@ -17,7 +17,7 @@ const (
 )
 
 // Setup initializes the global logger.
-// component is the name of the service (e.g., "hub", "runtimehost").
+// component is the name of the service (e.g., "hub", "runtimebroker").
 // debug enables DEBUG level logging.
 // useGCP formats logs for Google Cloud Logging.
 func Setup(component string, debug bool, useGCP bool) {

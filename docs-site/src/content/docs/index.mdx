@@ -39,9 +39,9 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ```d2
 Hub: {shape: cloud}
-RuntimeHost: {shape: cylinder}
+RuntimeBroker: {shape: cylinder}
 Agent: {shape: circle}
 
-Hub -> RuntimeHost: Orchestrates
-RuntimeHost -> Agent: Spawns
+Hub -> RuntimeBroker: Orchestrates
+RuntimeBroker -> Agent: Spawns
 ```

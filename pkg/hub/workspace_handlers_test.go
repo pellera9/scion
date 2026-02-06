@@ -799,22 +799,22 @@ func TestWorkspaceUnknownAction(t *testing.T) {
 func TestHostError_Error(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      *hostError
+		err      *brokerError
 		expected string
 	}{
 		{
 			name:     "with brokerID",
-			err:      &hostError{brokerID: "host-123", msg: "connection failed"},
+			err:      &brokerError{brokerID: "host-123", msg: "connection failed"},
 			expected: "host host-123: connection failed",
 		},
 		{
 			name:     "without brokerID",
-			err:      &hostError{statusCode: 500, msg: "internal error"},
+			err:      &brokerError{statusCode: 500, msg: "internal error"},
 			expected: "internal error",
 		},
 		{
 			name:     "empty error",
-			err:      &hostError{},
+			err:      &brokerError{},
 			expected: "",
 		},
 	}
@@ -823,7 +823,7 @@ func TestHostError_Error(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.err.Error()
 			if result != tt.expected {
-				t.Errorf("hostError.Error() = %q, want %q", result, tt.expected)
+				t.Errorf("brokerError.Error() = %q, want %q", result, tt.expected)
 			}
 		})
 	}
@@ -841,8 +841,8 @@ func TestErrHostNotConnected(t *testing.T) {
 	}
 }
 
-func TestErrRuntimeHostError(t *testing.T) {
-	err := errRuntimeHostError(503, "service unavailable")
+func TestErrRuntimeBrokerError(t *testing.T) {
+	err := errRuntimeBrokerError(503, "service unavailable")
 	if err == nil {
 		t.Fatal("expected non-nil error")
 	}
@@ -852,9 +852,9 @@ func TestErrRuntimeHostError(t *testing.T) {
 		t.Errorf("error message = %q, want %q", err.Error(), expected)
 	}
 
-	hostErr, ok := err.(*hostError)
+	hostErr, ok := err.(*brokerError)
 	if !ok {
-		t.Fatal("expected *hostError type")
+		t.Fatal("expected *brokerError type")
 	}
 	if hostErr.statusCode != 503 {
 		t.Errorf("status code = %d, want 503", hostErr.statusCode)

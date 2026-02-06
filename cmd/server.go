@@ -548,7 +548,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	// Set up the HTTP dispatcher for Hub to dispatch agents to RuntimeHosts.
+	// Set up the HTTP dispatcher for Hub to dispatch agents to RuntimeBrokers.
 	// This uses the same code path whether RuntimeBroker is co-located or remote.
 	if enableHub && hubSrv != nil {
 		dispatcher := hubSrv.CreateAuthenticatedDispatcher()

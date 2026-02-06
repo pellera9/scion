@@ -1,4 +1,4 @@
-// Package runtimehost provides the Scion Runtime Broker API server.
+// Package runtimebroker provides the Scion Runtime Broker API server.
 // The Runtime Broker API exposes agent lifecycle management over HTTP,
 // allowing the Scion Hub to remotely manage agents on this compute node.
 package runtimebroker

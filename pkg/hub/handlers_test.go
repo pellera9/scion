@@ -1021,7 +1021,7 @@ func TestGroveGetByID(t *testing.T) {
 // RuntimeBroker Endpoint Tests
 // ============================================================================
 
-func TestRuntimeHostList(t *testing.T) {
+func TestRuntimeBrokerList(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()
 
@@ -1055,7 +1055,7 @@ func TestRuntimeHostList(t *testing.T) {
 	}
 }
 
-func TestRuntimeHostGetByID(t *testing.T) {
+func TestRuntimeBrokerGetByID(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()
 
@@ -1089,7 +1089,7 @@ func TestRuntimeHostGetByID(t *testing.T) {
 	}
 }
 
-func TestRuntimeHostListWithGroveLocalPath(t *testing.T) {
+func TestRuntimeBrokerListWithGroveLocalPath(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()
 

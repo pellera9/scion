@@ -22,7 +22,7 @@ type Client interface {
 	// Groves returns the grove operations interface.
 	Groves() GroveService
 
-	// RuntimeHosts returns the runtime broker operations interface.
+	// RuntimeBrokers returns the runtime broker operations interface.
 	RuntimeBrokers() RuntimeBrokerService
 
 	// Templates returns the template operations interface.
@@ -53,7 +53,7 @@ type client struct {
 
 	agents        *agentService
 	groves        *groveService
-	runtimeHosts  *runtimeBrokerService
+	runtimeBrokers  *runtimeBrokerService
 	templates     *templateService
 	workspace     *workspaceService
 	users         *userService
@@ -75,7 +75,7 @@ func New(baseURL string, opts ...Option) (Client, error) {
 	// Initialize service implementations
 	c.agents = &agentService{c: c}
 	c.groves = &groveService{c: c}
-	c.runtimeHosts = &runtimeBrokerService{c: c}
+	c.runtimeBrokers = &runtimeBrokerService{c: c}
 	c.templates = &templateService{c: c}
 	c.workspace = &workspaceService{c: c}
 	c.users = &userService{c: c}
@@ -101,9 +101,9 @@ func (c *client) Groves() GroveService {
 	return c.groves
 }
 
-// RuntimeHosts returns the runtime broker operations interface.
+// RuntimeBrokers returns the runtime broker operations interface.
 func (c *client) RuntimeBrokers() RuntimeBrokerService {
-	return c.runtimeHosts
+	return c.runtimeBrokers
 }
 
 // Templates returns the template operations interface.
