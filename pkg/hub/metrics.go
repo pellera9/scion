@@ -55,8 +55,8 @@ type MetricsRecorder interface {
 	// RecordDispatch records a dispatch attempt to a runtime broker.
 	RecordDispatch(brokerID string, operation string, success bool, latency time.Duration)
 
-	// SetConnectedHosts sets the current number of connected hosts.
-	SetConnectedHosts(count int64)
+	// SetConnectedBrokers sets the current number of connected hosts.
+	SetConnectedBrokers(count int64)
 
 	// GetSnapshot returns a snapshot of current metrics.
 	GetSnapshot() *MetricsSnapshot
@@ -147,8 +147,8 @@ func (m *BrokerAuthMetrics) RecordDispatch(brokerID string, operation string, su
 	}
 }
 
-// SetConnectedHosts sets the current number of connected hosts.
-func (m *BrokerAuthMetrics) SetConnectedHosts(count int64) {
+// SetConnectedBrokers sets the current number of connected hosts.
+func (m *BrokerAuthMetrics) SetConnectedBrokers(count int64) {
 	m.connectedHosts.Store(count)
 }
 
@@ -222,7 +222,7 @@ func (n *NoOpMetrics) RecordJoin(brokerID string, success bool)                 
 func (n *NoOpMetrics) RecordRotation(brokerID string)                                         {}
 func (n *NoOpMetrics) RecordDispatch(brokerID, operation string, success bool, latency time.Duration) {
 }
-func (n *NoOpMetrics) SetConnectedHosts(count int64) {}
+func (n *NoOpMetrics) SetConnectedBrokers(count int64) {}
 func (n *NoOpMetrics) GetSnapshot() *MetricsSnapshot {
 	return &MetricsSnapshot{Timestamp: time.Now()}
 }

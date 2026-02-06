@@ -867,7 +867,7 @@ func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Reque
 		}
 
 		// For WebSocket, we need to verify HMAC on the upgrade request
-		_, err := s.brokerAuthService.ValidateHostSignature(r.Context(), r)
+		_, err := s.brokerAuthService.ValidateBrokerSignature(r.Context(), r)
 		if err != nil {
 			slog.Error("HMAC validation failed for host", "brokerID", brokerID, "error", err)
 			writeError(w, 401, ErrCodeBrokerAuthFailed, "Invalid broker signature", nil)

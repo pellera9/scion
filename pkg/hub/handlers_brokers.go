@@ -53,7 +53,7 @@ func (s *Server) createBrokerRegistration(w http.ResponseWriter, r *http.Request
 	}
 
 	// Create the host registration
-	resp, err := s.brokerAuthService.CreateHostRegistration(r.Context(), req, user.ID())
+	resp, err := s.brokerAuthService.CreateBrokerRegistration(r.Context(), req, user.ID())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError,
 			"failed to create broker registration: "+err.Error(), nil)
@@ -115,7 +115,7 @@ func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Complete the join
-	resp, err := s.brokerAuthService.CompleteHostJoin(r.Context(), req, hubEndpoint)
+	resp, err := s.brokerAuthService.CompleteBrokerJoin(r.Context(), req, hubEndpoint)
 	if err != nil {
 		// Log failed join attempt
 		LogJoinEvent(r.Context(), s.auditLogger, req.BrokerID, getClientIP(r), false, err.Error())
@@ -159,16 +159,16 @@ func (s *Server) handleBrokerByIDRoutes(w http.ResponseWriter, r *http.Request) 
 
 	switch action {
 	case "rotate-secret":
-		s.handleHostRotateSecret(w, r, brokerID)
+		s.handleBrokerRotateSecret(w, r, brokerID)
 	default:
 		NotFound(w, "host action")
 	}
 }
 
-// handleHostRotateSecret handles POST /api/v1/brokers/{id}/rotate-secret.
+// handleBrokerRotateSecret handles POST /api/v1/brokers/{id}/rotate-secret.
 // Rotates the HMAC secret for a host.
 // Requires admin authentication or host self-rotation.
-func (s *Server) handleHostRotateSecret(w http.ResponseWriter, r *http.Request, brokerID string) {
+func (s *Server) handleBrokerRotateSecret(w http.ResponseWriter, r *http.Request, brokerID string) {
 	if r.Method != http.MethodPost {
 		MethodNotAllowed(w)
 		return

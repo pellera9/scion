@@ -125,7 +125,7 @@ func AuditableBrokerAuthMiddleware(svc *BrokerAuthService, logger AuditLogger) f
 			}
 
 			// Validate HMAC signature
-			identity, err := svc.ValidateHostSignature(r.Context(), r)
+			identity, err := svc.ValidateBrokerSignature(r.Context(), r)
 			if err != nil {
 				event.EventType = BrokerAuthEventAuthFailure
 				event.Success = false
@@ -135,7 +135,7 @@ func AuditableBrokerAuthMiddleware(svc *BrokerAuthService, logger AuditLogger) f
 					_ = logger.LogBrokerAuthEvent(r.Context(), event)
 				}
 
-				writeHostAuthError(w, err.Error())
+				writeBrokerAuthError(w, err.Error())
 				return
 			}
 

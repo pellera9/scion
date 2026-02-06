@@ -478,8 +478,8 @@ func (m *ControlChannelManager) CloseStream(brokerID, streamID, reason string) e
 	return hc.CloseStream(streamID, reason)
 }
 
-// ListConnectedHosts returns a list of currently connected host IDs.
-func (m *ControlChannelManager) ListConnectedHosts() []string {
+// ListConnectedBrokers returns a list of currently connected host IDs.
+func (m *ControlChannelManager) ListConnectedBrokers() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

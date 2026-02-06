@@ -50,9 +50,9 @@ func TestHostRegistrationAndJoin(t *testing.T) {
 		},
 	}
 
-	resp, err := svc.CreateHostRegistration(ctx, req, "admin-user-id")
+	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin-user-id")
 	if err != nil {
-		t.Fatalf("CreateHostRegistration failed: %v", err)
+		t.Fatalf("CreateBrokerRegistration failed: %v", err)
 	}
 
 	if resp.BrokerID == "" {
@@ -79,9 +79,9 @@ func TestHostRegistrationAndJoin(t *testing.T) {
 		Version:   "1.0.0",
 	}
 
-	joinResp, err := svc.CompleteHostJoin(ctx, joinReq, "http://localhost:9810")
+	joinResp, err := svc.CompleteBrokerJoin(ctx, joinReq, "http://localhost:9810")
 	if err != nil {
-		t.Fatalf("CompleteHostJoin failed: %v", err)
+		t.Fatalf("CompleteBrokerJoin failed: %v", err)
 	}
 
 	if joinResp.BrokerID != resp.BrokerID {
@@ -110,9 +110,9 @@ func TestJoinWithInvalidToken(t *testing.T) {
 
 	// Create a host registration
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
-	resp, err := svc.CreateHostRegistration(ctx, req, "admin")
+	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
-		t.Fatalf("CreateHostRegistration failed: %v", err)
+		t.Fatalf("CreateBrokerRegistration failed: %v", err)
 	}
 
 	// Try to join with wrong token
@@ -123,7 +123,7 @@ func TestJoinWithInvalidToken(t *testing.T) {
 		Version:   "1.0.0",
 	}
 
-	_, err = svc.CompleteHostJoin(ctx, joinReq, "http://localhost:9810")
+	_, err = svc.CompleteBrokerJoin(ctx, joinReq, "http://localhost:9810")
 	if err == nil {
 		t.Error("Expected error for invalid token")
 	}
@@ -149,9 +149,9 @@ func TestJoinWithExpiredToken(t *testing.T) {
 
 	// Create a host registration (token will already be expired)
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
-	resp, err := svc.CreateHostRegistration(ctx, req, "admin")
+	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
-		t.Fatalf("CreateHostRegistration failed: %v", err)
+		t.Fatalf("CreateBrokerRegistration failed: %v", err)
 	}
 
 	// Try to join
@@ -162,7 +162,7 @@ func TestJoinWithExpiredToken(t *testing.T) {
 		Version:   "1.0.0",
 	}
 
-	_, err = svc.CompleteHostJoin(ctx, joinReq, "http://localhost:9810")
+	_, err = svc.CompleteBrokerJoin(ctx, joinReq, "http://localhost:9810")
 	if err == nil {
 		t.Error("Expected error for expired token")
 	}
@@ -177,9 +177,9 @@ func TestJoinTokenSingleUse(t *testing.T) {
 
 	// Create and complete a host registration
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
-	resp, err := svc.CreateHostRegistration(ctx, req, "admin")
+	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
-		t.Fatalf("CreateHostRegistration failed: %v", err)
+		t.Fatalf("CreateBrokerRegistration failed: %v", err)
 	}
 
 	joinReq := BrokerJoinRequest{
@@ -190,19 +190,19 @@ func TestJoinTokenSingleUse(t *testing.T) {
 	}
 
 	// First join should succeed
-	_, err = svc.CompleteHostJoin(ctx, joinReq, "http://localhost:9810")
+	_, err = svc.CompleteBrokerJoin(ctx, joinReq, "http://localhost:9810")
 	if err != nil {
-		t.Fatalf("First CompleteHostJoin failed: %v", err)
+		t.Fatalf("First CompleteBrokerJoin failed: %v", err)
 	}
 
 	// Second join with same token should fail
-	_, err = svc.CompleteHostJoin(ctx, joinReq, "http://localhost:9810")
+	_, err = svc.CompleteBrokerJoin(ctx, joinReq, "http://localhost:9810")
 	if err == nil {
 		t.Error("Expected error for reused token")
 	}
 }
 
-func TestValidateHostSignature(t *testing.T) {
+func TestValidateBrokerSignature(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
@@ -255,9 +255,9 @@ func TestValidateHostSignature(t *testing.T) {
 	req.Header.Set(HeaderSignature, signature)
 
 	// Validate the signature
-	identity, err := svc.ValidateHostSignature(ctx, req)
+	identity, err := svc.ValidateBrokerSignature(ctx, req)
 	if err != nil {
-		t.Fatalf("ValidateHostSignature failed: %v", err)
+		t.Fatalf("ValidateBrokerSignature failed: %v", err)
 	}
 
 	if identity.BrokerID() != brokerID {
@@ -268,7 +268,7 @@ func TestValidateHostSignature(t *testing.T) {
 	}
 }
 
-func TestValidateHostSignature_InvalidSignature(t *testing.T) {
+func TestValidateBrokerSignature_InvalidSignature(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
@@ -304,7 +304,7 @@ func TestValidateHostSignature_InvalidSignature(t *testing.T) {
 	req.Header.Set(HeaderNonce, "test-nonce")
 	req.Header.Set(HeaderSignature, "invalid-signature")
 
-	_, err := svc.ValidateHostSignature(ctx, req)
+	_, err := svc.ValidateBrokerSignature(ctx, req)
 	if err == nil {
 		t.Error("Expected error for invalid signature")
 	}
@@ -313,7 +313,7 @@ func TestValidateHostSignature_InvalidSignature(t *testing.T) {
 	}
 }
 
-func TestValidateHostSignature_ClockSkew(t *testing.T) {
+func TestValidateBrokerSignature_ClockSkew(t *testing.T) {
 	// Create service with short clock skew tolerance
 	s, err := sqlite.New(":memory:")
 	if err != nil {
@@ -361,7 +361,7 @@ func TestValidateHostSignature_ClockSkew(t *testing.T) {
 	req.Header.Set(HeaderNonce, "test-nonce")
 	req.Header.Set(HeaderSignature, "some-signature")
 
-	_, err = svc.ValidateHostSignature(ctx, req)
+	_, err = svc.ValidateBrokerSignature(ctx, req)
 	if err == nil {
 		t.Error("Expected error for clock skew")
 	}
@@ -370,7 +370,7 @@ func TestValidateHostSignature_ClockSkew(t *testing.T) {
 	}
 }
 
-func TestValidateHostSignature_MissingHeaders(t *testing.T) {
+func TestValidateBrokerSignature_MissingHeaders(t *testing.T) {
 	svc, _ := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
@@ -410,7 +410,7 @@ func TestValidateHostSignature_MissingHeaders(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
 			tc.setupReq(req)
 
-			_, err := svc.ValidateHostSignature(ctx, req)
+			_, err := svc.ValidateBrokerSignature(ctx, req)
 			if err == nil {
 				t.Error("Expected error")
 			}
@@ -698,9 +698,9 @@ func TestGenerateAndStoreSecret_CanBeUsedForHMACAuth(t *testing.T) {
 	req.Header.Set(HeaderSignature, signature)
 
 	// Validate the signature
-	identity, err := svc.ValidateHostSignature(ctx, req)
+	identity, err := svc.ValidateBrokerSignature(ctx, req)
 	if err != nil {
-		t.Fatalf("ValidateHostSignature failed: %v", err)
+		t.Fatalf("ValidateBrokerSignature failed: %v", err)
 	}
 
 	if identity.BrokerID() != brokerID {

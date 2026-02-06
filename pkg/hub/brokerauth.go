@@ -153,9 +153,9 @@ type BrokerJoinResponse struct {
 // JoinTokenPrefix is the prefix for join tokens.
 const JoinTokenPrefix = "scion_join_"
 
-// CreateHostRegistration creates a new host with a join token.
+// CreateBrokerRegistration creates a new host with a join token.
 // Requires admin authentication.
-func (s *BrokerAuthService) CreateHostRegistration(ctx context.Context, req CreateBrokerRegistrationRequest, createdBy string) (*CreateBrokerRegistrationResponse, error) {
+func (s *BrokerAuthService) CreateBrokerRegistration(ctx context.Context, req CreateBrokerRegistrationRequest, createdBy string) (*CreateBrokerRegistrationResponse, error) {
 	if req.Name == "" {
 		return nil, errors.New("name is required")
 	}
@@ -214,9 +214,9 @@ func (s *BrokerAuthService) CreateHostRegistration(ctx context.Context, req Crea
 	}, nil
 }
 
-// CompleteHostJoin completes host registration with join token exchange.
+// CompleteBrokerJoin completes host registration with join token exchange.
 // Returns the shared secret for HMAC authentication.
-func (s *BrokerAuthService) CompleteHostJoin(ctx context.Context, req BrokerJoinRequest, hubEndpoint string) (*BrokerJoinResponse, error) {
+func (s *BrokerAuthService) CompleteBrokerJoin(ctx context.Context, req BrokerJoinRequest, hubEndpoint string) (*BrokerJoinResponse, error) {
 	if req.BrokerID == "" {
 		return nil, errors.New("brokerId is required")
 	}
@@ -343,8 +343,8 @@ const (
 	HeaderSignedHeaders = "X-Scion-Signed-Headers"
 )
 
-// ValidateHostSignature validates an HMAC-signed request from a Runtime Broker.
-func (s *BrokerAuthService) ValidateHostSignature(ctx context.Context, r *http.Request) (BrokerIdentity, error) {
+// ValidateBrokerSignature validates an HMAC-signed request from a Runtime Broker.
+func (s *BrokerAuthService) ValidateBrokerSignature(ctx context.Context, r *http.Request) (BrokerIdentity, error) {
 	// Extract required headers
 	brokerID := r.Header.Get(HeaderBrokerID)
 	if brokerID == "" {
@@ -556,10 +556,10 @@ func (s *BrokerAuthService) RotateBrokerSecret(ctx context.Context, brokerID str
 	}, nil
 }
 
-// ValidateHostSignatureWithRotation validates a request trying multiple secrets.
+// ValidateBrokerSignatureWithRotation validates a request trying multiple secrets.
 // This supports the grace period during secret rotation where both old and new
 // secrets are valid.
-func (s *BrokerAuthService) ValidateHostSignatureWithRotation(ctx context.Context, r *http.Request) (BrokerIdentity, error) {
+func (s *BrokerAuthService) ValidateBrokerSignatureWithRotation(ctx context.Context, r *http.Request) (BrokerIdentity, error) {
 	// Extract required headers
 	brokerID := r.Header.Get(HeaderBrokerID)
 	if brokerID == "" {
@@ -700,9 +700,9 @@ func BrokerAuthMiddleware(svc *BrokerAuthService) func(http.Handler) http.Handle
 			}
 
 			// Validate HMAC signature
-			identity, err := svc.ValidateHostSignature(r.Context(), r)
+			identity, err := svc.ValidateBrokerSignature(r.Context(), r)
 			if err != nil {
-				writeHostAuthError(w, err.Error())
+				writeBrokerAuthError(w, err.Error())
 				return
 			}
 
@@ -714,7 +714,7 @@ func BrokerAuthMiddleware(svc *BrokerAuthService) func(http.Handler) http.Handle
 	}
 }
 
-// writeHostAuthError writes a host authentication error response.
-func writeHostAuthError(w http.ResponseWriter, message string) {
+// writeBrokerAuthError writes a host authentication error response.
+func writeBrokerAuthError(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusUnauthorized, ErrCodeBrokerAuthFailed, message, nil)
 }
