@@ -72,12 +72,37 @@ The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) d
 | Data Type | Source | Description |
 |-----------|--------|-------------|
 | Traces | Agent OTLP | Span data for tool calls, API requests |
+| Hook Events | Harness hooks | Tool calls, prompts, model invocations converted to spans |
+| Session Metrics | Gemini session files | Token counts, turn counts, tool statistics |
 | Lifecycle Events | sciontool | Pre-start, post-start, pre-stop, session-end |
 | Status Updates | sciontool | Agent state changes |
+| System Logs | Hub/Runtime Host | Structured logs via OTel bridge |
 
 ### Privacy Controls
 
-By default, user prompts (`agent.user.prompt`) are excluded from telemetry to protect privacy. See [Privacy Filtering](/guides/metrics#privacy-filtering) for customization.
+By default, user prompts (`agent.user.prompt`) are excluded from telemetry to protect privacy. Additionally, sensitive attributes are automatically redacted or hashed. See [Privacy Filtering](/guides/metrics#privacy-filtering) and [Attribute Redaction](/guides/metrics#attribute-redaction) for customization.
+
+### Session Metrics (Gemini)
+
+For Gemini CLI agents, sciontool automatically parses session files on session completion to extract:
+
+- **Token usage**: Input, output, and cached tokens
+- **Session info**: Turn count, duration, model used
+- **Tool statistics**: Per-tool call counts, success/error rates
+
+These metrics are included as attributes on the `agent.session.end` span.
+
+### OTel Log Bridge (Hub & Runtime Host)
+
+The Hub and Runtime Host servers can forward their internal logs to an OTLP endpoint using the OpenTelemetry log bridge pattern:
+
+```bash
+# Enable OTel log forwarding
+export SCION_OTEL_LOG_ENABLED=true
+export SCION_OTEL_ENDPOINT="monitoring.googleapis.com:443"
+```
+
+This allows system component logs to appear alongside agent traces in your observability backend. The log bridge runs in parallel with local logging - both destinations receive all log records.
 
 ## Integration Points
 

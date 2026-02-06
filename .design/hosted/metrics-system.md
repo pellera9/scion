@@ -1,7 +1,7 @@
 # Hosted Scion Metrics System Design
 
 ## Status
-**In Progress** - Milestone 1 (Telemetry Foundation) complete. Milestones 2-4 pending.
+**In Progress** - Milestones 1-2 complete. Milestones 3-4 pending.
 
 ## 1. Overview
 
@@ -876,20 +876,74 @@ telemetry:
 - `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp`
 - `go.opentelemetry.io/proto/otlp` (upgraded to v1.9.0)
 
-### Milestone 2: Harness Data & Log Bridge
+### Milestone 2: Harness Data & Log Bridge ✅ COMPLETE
 
 **Goal:** Normalize data from harnesses and system components into the telemetry stream.
 
+**Status:** Completed 2026-02-06
+
 **Deliverables:**
-- [ ] **Hook Normalization**: Dialect parsers for converting harness hooks to `agent.*` events.
-- [ ] **Session Parsing**: Logic to parse Gemini CLI `session-*.json` files on session end.
-- [ ] **Log Bridge**: `otelslog` integration for Hub and Runtime Host structured logging.
-- [ ] **Attribute Redaction**: Privacy filter implementation for sensitive fields.
+- [x] **Hook Normalization**: TelemetryHandler converts harness hooks to OTLP spans with `agent.*` naming.
+- [x] **Session Parsing**: Logic to parse Gemini CLI `session-*.json` files on session end.
+- [x] **Log Bridge**: `otelslog` integration for Hub and Runtime Host structured logging.
+- [x] **Attribute Redaction**: Privacy filter implementation for sensitive fields (redact + hash).
 
 **Test Criteria:**
 - Run a Gemini agent session: tool calls appear as spans in GCP Trace.
 - Agent logs (stdout/stderr) appear in GCP Logging with correct `agent_id` labels.
 - Sensitive data (prompts) is redacted or absent based on config.
+
+#### Implementation Notes
+
+**Package Structure:**
+
+| File | Description |
+|------|-------------|
+| `pkg/sciontool/hooks/handlers/telemetry.go` | TelemetryHandler converts hook events to OTLP spans |
+| `pkg/sciontool/hooks/session/parser.go` | Parses Gemini `session-*.json` for token metrics |
+| `pkg/sciontool/telemetry/filter.go` | Extended with `Redactor` for attribute redaction/hashing |
+| `pkg/util/logging/otel.go` | Multi-handler and OTel bridge support |
+| `pkg/util/logging/otel_provider.go` | LoggerProvider initialization for OTel log bridge |
+
+**Hook-to-Span Mapping:**
+
+| Hook Event | Span Name | Key Attributes |
+|------------|-----------|----------------|
+| `session-start` | `agent.session.start` | session_id, source |
+| `session-end` | `agent.session.end` | session_id, reason, tokens_*, duration_ms |
+| `tool-start` | `agent.tool.call` | tool_name, tool_input (redacted) |
+| `tool-end` | `agent.tool.result` | tool_name, success, duration_ms |
+| `prompt-submit` | `agent.user.prompt` | prompt (redacted) |
+| `model-start` | `gen_ai.api.request` | model |
+| `model-end` | `gen_ai.api.response` | success |
+
+**Redaction Configuration:**
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `SCION_TELEMETRY_REDACT` | `prompt,user.email,tool_output,tool_input` | Fields replaced with `[REDACTED]` |
+| `SCION_TELEMETRY_HASH` | `session_id` | Fields replaced with SHA256 hash |
+
+**Session Metrics Extraction:**
+
+On `session-end` events, the TelemetryHandler parses the latest Gemini session file from `~/.gemini/sessions/` and adds these attributes to the span:
+- `tokens_input`, `tokens_output`, `tokens_cached`
+- `turn_count`, `duration_ms`, `model`
+- Per-tool statistics: `tool.<name>.calls`, `tool.<name>.success`, `tool.<name>.errors`
+
+**OTel Log Bridge Pattern:**
+
+The Hub and Runtime Host use a multi-handler approach:
+1. Base handler (JSON or GCP-formatted) for local output
+2. OTel bridge handler for forwarding to OTLP endpoint
+3. Both handlers receive all log records simultaneously
+
+Enabled via `SCION_OTEL_LOG_ENABLED=true` with endpoint in `SCION_OTEL_ENDPOINT`.
+
+**Dependencies Added:**
+- `go.opentelemetry.io/contrib/bridges/otelslog`
+- `go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc`
+- `go.opentelemetry.io/otel/sdk/log`
 
 ### Milestone 3: Hub Reporting & Storage
 

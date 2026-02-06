@@ -31,6 +31,9 @@ Telemetry is configured via environment variables. This follows the same pattern
 | `SCION_GCP_PROJECT_ID` | (auto) | GCP project ID for exporter |
 | `SCION_TELEMETRY_FILTER_EXCLUDE` | `agent.user.prompt` | Comma-separated event types to exclude |
 | `SCION_TELEMETRY_FILTER_INCLUDE` | (empty) | Comma-separated event types to include (empty = all) |
+| `SCION_TELEMETRY_REDACT` | `prompt,user.email,tool_output,tool_input` | Comma-separated fields to redact |
+| `SCION_TELEMETRY_HASH` | `session_id` | Comma-separated fields to hash (SHA256) |
+| `SCION_OTEL_LOG_ENABLED` | (auto) | Enable OTel log bridge for Hub/Runtime Host |
 
 ### Basic Setup
 
@@ -78,6 +81,47 @@ export SCION_TELEMETRY_FILTER_INCLUDE="agent.session.start,agent.session.end,age
 ```
 
 Note: The exclude filter is always applied after the include filter.
+
+## Attribute Redaction
+
+Beyond event filtering, sciontool provides field-level attribute redaction for sensitive data. This allows telemetry to flow while protecting specific values.
+
+### Redacted Fields
+
+Redacted fields have their values replaced with `[REDACTED]`:
+
+```bash
+# Default redacted fields
+export SCION_TELEMETRY_REDACT="prompt,user.email,tool_output,tool_input"
+
+# Add custom fields to redact
+export SCION_TELEMETRY_REDACT="prompt,user.email,tool_output,tool_input,custom_field"
+
+# Disable all redaction (use with caution)
+export SCION_TELEMETRY_REDACT=""
+```
+
+### Hashed Fields
+
+Hashed fields are replaced with their SHA256 hash, allowing correlation without exposing the original value:
+
+```bash
+# Default hashed fields
+export SCION_TELEMETRY_HASH="session_id"
+
+# Hash additional fields
+export SCION_TELEMETRY_HASH="session_id,user_id"
+```
+
+### Default Privacy Settings
+
+| Field | Treatment | Rationale |
+|-------|-----------|-----------|
+| `prompt` | Redacted | May contain sensitive user instructions |
+| `user.email` | Redacted | PII protection |
+| `tool_output` | Redacted | May contain file contents, credentials |
+| `tool_input` | Redacted | May contain sensitive parameters |
+| `session_id` | Hashed | Allows correlation without exposure |
 
 ## Receiver Ports
 
@@ -163,14 +207,43 @@ Use `otel-cli` or similar to send test data:
 otel-cli span --service test-agent --name "test-span"
 ```
 
+## Hook-to-Span Conversion
+
+Harness hook events are automatically converted to OTLP spans:
+
+| Hook Event | Span Name | Attributes |
+|------------|-----------|------------|
+| `session-start` | `agent.session.start` | session_id, source |
+| `session-end` | `agent.session.end` | session_id, reason, tokens_*, duration_ms |
+| `tool-start` | `agent.tool.call` | tool_name, tool_input |
+| `tool-end` | `agent.tool.result` | tool_name, success, duration_ms |
+| `prompt-submit` | `agent.user.prompt` | prompt |
+| `model-start` | `gen_ai.api.request` | model |
+| `model-end` | `gen_ai.api.response` | success |
+
+### Session Metrics (Gemini)
+
+For Gemini CLI agents, session-end events include aggregated metrics from the session file:
+
+- Token counts: `tokens_input`, `tokens_output`, `tokens_cached`
+- Session info: `turn_count`, `duration_ms`, `model`
+- Per-tool statistics: `tool.<name>.calls`, `tool.<name>.success`, `tool.<name>.errors`
+
+Session files are automatically parsed from `~/.gemini/sessions/`.
+
 ## Implementation Details
 
 The telemetry pipeline is implemented in `pkg/sciontool/telemetry/`:
 
 - `config.go` - Configuration loading from environment variables
-- `filter.go` - Event type filtering (include/exclude)
+- `filter.go` - Event type filtering (include/exclude) and attribute redaction
 - `exporter.go` - Cloud OTLP exporter (gRPC and HTTP)
 - `receiver.go` - OTLP gRPC/HTTP receiver
 - `pipeline.go` - Main orchestration (Start/Stop lifecycle)
+
+Hook-to-span conversion is in `pkg/sciontool/hooks/handlers/`:
+
+- `telemetry.go` - TelemetryHandler for converting hooks to spans
+- Session parsing in `pkg/sciontool/hooks/session/parser.go`
 
 The pipeline is integrated into the init command (`cmd/sciontool/commands/init.go`) and starts after user setup, before lifecycle hooks.
