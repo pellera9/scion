@@ -82,12 +82,14 @@ type Grove struct {
 
 // GroveContributor represents a broker contributing to a grove.
 type GroveContributor struct {
-	BrokerID string    `json:"brokerId"`
+	BrokerID   string    `json:"brokerId"`
 	BrokerName string    `json:"brokerName"`
-	Mode      string    `json:"mode"`
-	Status    string    `json:"status"`
-	LastSeen  time.Time `json:"lastSeen,omitempty"`
-	LocalPath string    `json:"localPath,omitempty"`
+	Mode       string    `json:"mode"`
+	Status     string    `json:"status"`
+	LastSeen   time.Time `json:"lastSeen,omitempty"`
+	LocalPath  string    `json:"localPath,omitempty"`
+	LinkedBy   string    `json:"linkedBy,omitempty"` // User ID who performed the link
+	LinkedAt   time.Time `json:"linkedAt,omitempty"` // Timestamp when the link was created
 }
 
 // GroveSettings represents grove configuration settings.
@@ -109,22 +111,23 @@ type BucketConfig struct {
 
 // RuntimeBroker represents a runtime broker from the Hub API.
 type RuntimeBroker struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Slug            string            `json:"slug"`
-	Mode            string            `json:"mode"`
-	Version         string            `json:"version"`
-	Status          string            `json:"status"`
-	ConnectionState string            `json:"connectionState"`
-	LastHeartbeat   time.Time         `json:"lastHeartbeat,omitempty"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Slug            string              `json:"slug"`
+	Mode            string              `json:"mode"`
+	Version         string              `json:"version"`
+	Status          string              `json:"status"`
+	ConnectionState string              `json:"connectionState"`
+	LastHeartbeat   time.Time           `json:"lastHeartbeat,omitempty"`
 	Capabilities    *BrokerCapabilities `json:"capabilities,omitempty"`
 	Profiles        []BrokerProfile     `json:"profiles,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Annotations     map[string]string `json:"annotations,omitempty"`
-	Endpoint        string            `json:"endpoint,omitempty"`
+	Labels          map[string]string   `json:"labels,omitempty"`
+	Annotations     map[string]string   `json:"annotations,omitempty"`
+	Endpoint        string              `json:"endpoint,omitempty"`
 	Groves          []BrokerGroveInfo   `json:"groves,omitempty"`
-	Created         time.Time         `json:"created"`
-	Updated         time.Time         `json:"updated"`
+	Created         time.Time           `json:"created"`
+	Updated         time.Time           `json:"updated"`
+	CreatedBy       string              `json:"createdBy,omitempty"` // User ID who registered this broker
 }
 
 // BrokerCapabilities describes runtime broker capabilities.

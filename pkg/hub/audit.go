@@ -14,6 +14,8 @@ type BrokerAuthEventType string
 const (
 	// BrokerAuthEventRegister is logged when a new broker is registered.
 	BrokerAuthEventRegister BrokerAuthEventType = "register"
+	// BrokerAuthEventDeregister is logged when a broker is deregistered.
+	BrokerAuthEventDeregister BrokerAuthEventType = "deregister"
 	// BrokerAuthEventJoin is logged when a broker completes join.
 	BrokerAuthEventJoin BrokerAuthEventType = "join"
 	// BrokerAuthEventAuthSuccess is logged when a broker successfully authenticates.
@@ -24,6 +26,10 @@ const (
 	BrokerAuthEventRotate BrokerAuthEventType = "rotate"
 	// BrokerAuthEventRevoke is logged when a broker secret is revoked.
 	BrokerAuthEventRevoke BrokerAuthEventType = "revoke"
+	// BrokerAuthEventLink is logged when a broker is linked to a grove.
+	BrokerAuthEventLink BrokerAuthEventType = "link"
+	// BrokerAuthEventUnlink is logged when a broker is unlinked from a grove.
+	BrokerAuthEventUnlink BrokerAuthEventType = "unlink"
 )
 
 // BrokerAuthEvent represents an auditable event related to broker authentication.
@@ -223,12 +229,77 @@ func LogRotateEvent(ctx context.Context, logger AuditLogger, brokerID, actorID, 
 
 	event := &BrokerAuthEvent{
 		EventType: BrokerAuthEventRotate,
-		BrokerID:    brokerID,
+		BrokerID:  brokerID,
 		IPAddress: ipAddress,
 		Success:   true,
 		ActorID:   actorID,
 		ActorType: actorType,
 		Timestamp: time.Now(),
+	}
+
+	_ = logger.LogBrokerAuthEvent(ctx, event)
+}
+
+// LogDeregisterEvent logs a broker deregistration event.
+func LogDeregisterEvent(ctx context.Context, logger AuditLogger, brokerID, brokerName, actorID, ipAddress string) {
+	if logger == nil {
+		return
+	}
+
+	event := &BrokerAuthEvent{
+		EventType:  BrokerAuthEventDeregister,
+		BrokerID:   brokerID,
+		BrokerName: brokerName,
+		IPAddress:  ipAddress,
+		Success:    true,
+		ActorID:    actorID,
+		ActorType:  "user",
+		Timestamp:  time.Now(),
+	}
+
+	_ = logger.LogBrokerAuthEvent(ctx, event)
+}
+
+// LogLinkEvent logs a grove link event (broker linked to grove).
+func LogLinkEvent(ctx context.Context, logger AuditLogger, brokerID, brokerName, groveID, actorID, ipAddress string) {
+	if logger == nil {
+		return
+	}
+
+	event := &BrokerAuthEvent{
+		EventType:  BrokerAuthEventLink,
+		BrokerID:   brokerID,
+		BrokerName: brokerName,
+		IPAddress:  ipAddress,
+		Success:    true,
+		ActorID:    actorID,
+		ActorType:  "user",
+		Timestamp:  time.Now(),
+		Details: map[string]string{
+			"groveId": groveID,
+		},
+	}
+
+	_ = logger.LogBrokerAuthEvent(ctx, event)
+}
+
+// LogUnlinkEvent logs a grove unlink event (broker unlinked from grove).
+func LogUnlinkEvent(ctx context.Context, logger AuditLogger, brokerID, groveID, actorID, ipAddress string) {
+	if logger == nil {
+		return
+	}
+
+	event := &BrokerAuthEvent{
+		EventType: BrokerAuthEventUnlink,
+		BrokerID:  brokerID,
+		IPAddress: ipAddress,
+		Success:   true,
+		ActorID:   actorID,
+		ActorType: "user",
+		Timestamp: time.Now(),
+		Details: map[string]string{
+			"groveId": groveID,
+		},
 	}
 
 	_ = logger.LogBrokerAuthEvent(ctx, event)

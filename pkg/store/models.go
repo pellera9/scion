@@ -143,6 +143,9 @@ type RuntimeBroker struct {
 	// Timestamps
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
+
+	// Ownership - tracks who registered this broker
+	CreatedBy string `json:"createdBy,omitempty"`
 }
 
 // BrokerCapabilities describes what a runtime broker can do.
@@ -163,13 +166,17 @@ type BrokerProfile struct {
 
 // GroveContributor links a runtime broker to a grove.
 type GroveContributor struct {
-	GroveID   string    `json:"groveId"`
-	BrokerID string    `json:"brokerId"`
+	GroveID    string    `json:"groveId"`
+	BrokerID   string    `json:"brokerId"`
 	BrokerName string    `json:"brokerName"`
-	LocalPath string    `json:"localPath,omitempty"` // Filesystem path to the grove on this broker (e.g., ~/.scion or /path/to/project/.scion)
-	Mode      string    `json:"mode"`                // connected, read-only
-	Status    string    `json:"status"`              // online, offline
-	LastSeen  time.Time `json:"lastSeen,omitempty"`
+	LocalPath  string    `json:"localPath,omitempty"` // Filesystem path to the grove on this broker (e.g., ~/.scion or /path/to/project/.scion)
+	Mode       string    `json:"mode"`                // connected, read-only
+	Status     string    `json:"status"`              // online, offline
+	LastSeen   time.Time `json:"lastSeen,omitempty"`
+
+	// Ownership - tracks who linked this broker to the grove
+	LinkedBy string    `json:"linkedBy,omitempty"` // User ID who performed the link
+	LinkedAt time.Time `json:"linkedAt,omitempty"` // Timestamp when the link was created
 }
 
 // Template represents an agent template in the Hub database.

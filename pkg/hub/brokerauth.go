@@ -165,14 +165,15 @@ func (s *BrokerAuthService) CreateBrokerRegistration(ctx context.Context, req Cr
 
 	// Create the runtime broker record
 	broker := &store.RuntimeBroker{
-		ID:          brokerID,
-		Name:        req.Name,
-		Slug:        slugify(req.Name),
-		Mode:        store.BrokerModeConnected,
-		Status:      store.BrokerStatusOffline,
-		Labels:      req.Labels,
-		Created:     time.Now(),
-		Updated:     time.Now(),
+		ID:        brokerID,
+		Name:      req.Name,
+		Slug:      slugify(req.Name),
+		Mode:      store.BrokerModeConnected,
+		Status:    store.BrokerStatusOffline,
+		Labels:    req.Labels,
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		CreatedBy: createdBy,
 	}
 
 	if err := s.store.CreateRuntimeBroker(ctx, broker); err != nil {

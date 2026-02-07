@@ -376,7 +376,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Create broker
+	// Create broker with CreatedBy tracking
 	broker := &store.RuntimeBroker{
 		ID:      api.NewUUID(),
 		Name:    "Dev Laptop",
@@ -392,6 +392,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 		Profiles: []store.BrokerProfile{
 			{Name: "default", Type: "docker", Available: true},
 		},
+		CreatedBy: "admin-user-456",
 	}
 
 	err := s.CreateRuntimeBroker(ctx, broker)
@@ -405,6 +406,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	assert.True(t, retrieved.Capabilities.WebPTY)
 	assert.Len(t, retrieved.Profiles, 1)
 	assert.Equal(t, "docker", retrieved.Profiles[0].Type)
+	assert.Equal(t, "admin-user-456", retrieved.CreatedBy)
 
 	// Update broker
 	retrieved.Status = store.BrokerStatusOffline
@@ -694,13 +696,14 @@ func TestGroveContributors(t *testing.T) {
 	}
 	require.NoError(t, s.CreateRuntimeBroker(ctx, broker2))
 
-	// Add contributors
+	// Add contributors with user tracking
 	contrib1 := &store.GroveContributor{
-		GroveID:  grove.ID,
+		GroveID:    grove.ID,
 		BrokerID:   broker1.ID,
 		BrokerName: broker1.Name,
-		Mode:     store.BrokerModeConnected,
-		Status:   store.BrokerStatusOnline,
+		Mode:       store.BrokerModeConnected,
+		Status:     store.BrokerStatusOnline,
+		LinkedBy:   "user-123",
 	}
 	require.NoError(t, s.AddGroveContributor(ctx, contrib1))
 
@@ -717,6 +720,20 @@ func TestGroveContributors(t *testing.T) {
 	contributors, err := s.GetGroveContributors(ctx, grove.ID)
 	require.NoError(t, err)
 	assert.Len(t, contributors, 2)
+
+	// Verify user tracking fields are stored
+	for _, c := range contributors {
+		if c.BrokerID == broker1.ID {
+			assert.Equal(t, "user-123", c.LinkedBy)
+			assert.False(t, c.LinkedAt.IsZero(), "LinkedAt should be set")
+		}
+	}
+
+	// Verify GetGroveContributor also returns user tracking fields
+	contrib, err := s.GetGroveContributor(ctx, grove.ID, broker1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "user-123", contrib.LinkedBy)
+	assert.False(t, contrib.LinkedAt.IsZero(), "LinkedAt should be set")
 
 	// Get broker groves
 	groves, err := s.GetBrokerGroves(ctx, broker1.ID)

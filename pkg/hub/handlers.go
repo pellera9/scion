@@ -1869,10 +1869,28 @@ func (s *Server) updateRuntimeBroker(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s *Server) deleteRuntimeBroker(w http.ResponseWriter, r *http.Request, id string) {
-	if err := s.store.DeleteRuntimeBroker(r.Context(), id); err != nil {
+	ctx := r.Context()
+
+	// Get the user who is performing this action for audit logging
+	var actorID string
+	if user := GetUserIdentityFromContext(ctx); user != nil {
+		actorID = user.ID()
+	}
+
+	// Get broker info before deletion for audit logging
+	broker, _ := s.store.GetRuntimeBroker(ctx, id)
+	brokerName := ""
+	if broker != nil {
+		brokerName = broker.Name
+	}
+
+	if err := s.store.DeleteRuntimeBroker(ctx, id); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
 	}
+
+	// Log the deregistration event
+	LogDeregisterEvent(ctx, s.auditLogger, id, brokerName, actorID, getClientIP(r))
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -2897,14 +2915,21 @@ func (s *Server) addGroveContributor(w http.ResponseWriter, r *http.Request, gro
 		mode = store.BrokerModeConnected
 	}
 
+	// Get the user who is performing this action
+	var linkedBy string
+	if user := GetUserIdentityFromContext(ctx); user != nil {
+		linkedBy = user.ID()
+	}
+
 	// Create contributor record
 	contrib := &store.GroveContributor{
-		GroveID:   groveID,
-		BrokerID:    broker.ID,
-		BrokerName:  broker.Name,
-		LocalPath: req.LocalPath,
-		Mode:      mode,
-		Status:    broker.Status,
+		GroveID:    groveID,
+		BrokerID:   broker.ID,
+		BrokerName: broker.Name,
+		LocalPath:  req.LocalPath,
+		Mode:       mode,
+		Status:     broker.Status,
+		LinkedBy:   linkedBy,
 	}
 
 	if err := s.store.AddGroveContributor(ctx, contrib); err != nil {
@@ -2919,6 +2944,9 @@ func (s *Server) addGroveContributor(w http.ResponseWriter, r *http.Request, gro
 		_ = s.store.UpdateGrove(ctx, grove)
 	}
 
+	// Log the link event
+	LogLinkEvent(ctx, s.auditLogger, broker.ID, broker.Name, groveID, linkedBy, getClientIP(r))
+
 	writeJSON(w, http.StatusCreated, AddContributorResponse{
 		Contributor: contrib,
 	})
@@ -2928,10 +2956,19 @@ func (s *Server) addGroveContributor(w http.ResponseWriter, r *http.Request, gro
 func (s *Server) removeGroveContributor(w http.ResponseWriter, r *http.Request, groveID, brokerID string) {
 	ctx := r.Context()
 
+	// Get the user who is performing this action for audit logging
+	var actorID string
+	if user := GetUserIdentityFromContext(ctx); user != nil {
+		actorID = user.ID()
+	}
+
 	if err := s.store.RemoveGroveContributor(ctx, groveID, brokerID); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
 	}
+
+	// Log the unlink event
+	LogUnlinkEvent(ctx, s.auditLogger, brokerID, groveID, actorID, getClientIP(r))
 
 	w.WriteHeader(http.StatusNoContent)
 }
