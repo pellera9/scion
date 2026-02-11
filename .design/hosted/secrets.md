@@ -1,6 +1,6 @@
 # Secrets Management Design
 
-**Status:** Draft
+**Status:** Phase 1 & 2 Implemented
 **Updated:** 2026-02-11
 
 ## 1. Overview
@@ -759,21 +759,21 @@ File-type secrets are limited to **64 KiB** to match GCP Secret Manager's per-ve
 
 ## 8. Migration Path
 
-### 8.1 Phase 1: Type-Aware Store Model
+### 8.1 Phase 1: Type-Aware Store Model — **Implemented**
 
-1. Add `SecretType` and `Target` columns to the secrets table (nullable, defaulting to `"environment"` and `Key` respectively).
-2. Add `CreatedBy` and `UpdatedBy` audit columns to the secrets table.
-3. Update `store.SecretStore` interface and SQLite implementation.
-4. Update Hub API handlers to accept and return the new fields.
-5. Update CLI `hub secret set/get` commands.
-6. Implement `scion hub env --secret` as a convenience that creates a secret resource.
+1. ~~Add `SecretType` and `Target` columns to the secrets table (nullable, defaulting to `"environment"` and `Key` respectively).~~ Done (migration V13).
+2. ~~Add `CreatedBy` and `UpdatedBy` audit columns to the secrets table.~~ Already present; no migration needed.
+3. ~~Update `store.SecretStore` interface and SQLite implementation.~~ Done (`SecretFilter.Type`, CRUD updates).
+4. ~~Update Hub API handlers to accept and return the new fields.~~ Done (type validation, file path validation, 64 KiB limit).
+5. ~~Update CLI `hub secret set/get` commands.~~ Done (`--type`, `--target`, `@file` syntax, TYPE column in list).
+6. ~~Implement `scion hub env --secret` as a convenience that creates a secret resource.~~ Done (redirects to Secret API).
 
-### 8.2 Phase 2: Runtime Projection
+### 8.2 Phase 2: Runtime Projection — **Implemented**
 
-1. Add `ResolvedSecrets` to `CreateAgentRequest`.
-2. Implement projection logic in the Runtime Broker's `CreateAgent` handler.
-3. Docker: env injection and bind-mount file secrets to target paths.
-4. Apple: env injection and copy-on-init via `sciontool` with `secret-map.json`.
+1. ~~Add `ResolvedSecrets` to `CreateAgentRequest`.~~ Done (`api.ResolvedSecret`, wired through dispatch chain).
+2. ~~Implement projection logic in the Runtime Broker's `CreateAgent` handler.~~ Done (passthrough to `RunConfig`).
+3. ~~Docker: env injection and bind-mount file secrets to target paths.~~ Done.
+4. ~~Apple: env injection and copy-on-init via `sciontool` with `secret-map.json`.~~ Done (secrets staging volume + secret-map.json).
 
 ### 8.3 Phase 3: GCP Secret Manager Backend
 
