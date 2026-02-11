@@ -502,6 +502,7 @@ type Group struct {
 	Slug        string `json:"slug"`        // URL-safe identifier
 	Description string `json:"description,omitempty"`
 	GroupType   string `json:"groupType,omitempty"` // "explicit" or "grove_agents"
+	GroveID     string `json:"groveId,omitempty"`   // FK to Grove.ID (for grove_agents groups)
 
 	// Hierarchy
 	ParentID string `json:"parentId,omitempty"` // Optional parent group for hierarchy

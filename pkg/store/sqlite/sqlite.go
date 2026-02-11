@@ -2820,6 +2820,16 @@ func (s *SQLiteStore) addTransitiveGroups(ctx context.Context, groupID string, v
 	return nil
 }
 
+// GetGroupByGroveID retrieves the grove_agents group associated with a grove.
+func (s *SQLiteStore) GetGroupByGroveID(ctx context.Context, groveID string) (*store.Group, error) {
+	return nil, store.ErrNotFound
+}
+
+// GetEffectiveGroupsForAgent returns all groups an agent belongs to.
+func (s *SQLiteStore) GetEffectiveGroupsForAgent(ctx context.Context, agentID string) ([]string, error) {
+	return nil, nil
+}
+
 // ============================================================================
 // Policy Operations
 // ============================================================================

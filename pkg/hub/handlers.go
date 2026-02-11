@@ -1081,7 +1081,27 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create the associated grove_agents group (best-effort)
+	s.createGroveGroup(ctx, grove)
+
 	writeJSON(w, http.StatusCreated, grove)
+}
+
+// createGroveGroup creates the implicit grove_agents group for a grove.
+// This is a best-effort operation; failures are logged but don't fail the caller.
+func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
+	groveGroup := &store.Group{
+		ID:        api.NewUUID(),
+		Name:      grove.Name + " Agents",
+		Slug:      "grove:" + grove.Slug + ":agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   grove.ID,
+		OwnerID:   grove.OwnerID,
+		CreatedBy: grove.CreatedBy,
+	}
+	if err := s.store.CreateGroup(ctx, groveGroup); err != nil {
+		slog.Warn("failed to create grove group", "grove", grove.ID, "error", err)
+	}
 }
 
 func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
@@ -1173,6 +1193,9 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		created = true
+
+		// Create the associated grove_agents group (best-effort)
+		s.createGroveGroup(ctx, grove)
 
 		// Auto-link brokers that have auto_provide enabled
 		autoProvideTrue := true
@@ -1996,7 +2019,16 @@ func (s *Server) updateGrove(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, id string) {
-	if err := s.store.DeleteGrove(r.Context(), id); err != nil {
+	ctx := r.Context()
+
+	// Clean up the associated grove_agents group (best-effort)
+	if groveGroup, err := s.store.GetGroupByGroveID(ctx, id); err == nil {
+		if delErr := s.store.DeleteGroup(ctx, groveGroup.ID); delErr != nil {
+			slog.Warn("failed to delete grove group", "grove", id, "group", groveGroup.ID, "error", delErr)
+		}
+	}
+
+	if err := s.store.DeleteGrove(ctx, id); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
 	}

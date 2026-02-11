@@ -871,3 +871,242 @@ func TestDeleteGroupCascadesMemberships(t *testing.T) {
 	_, err = gs.GetGroup(ctx, g.ID)
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
+
+// =============================================================================
+// Phase 3: Dynamic Grove Groups
+// =============================================================================
+
+func TestCreateGroveGroup(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Test Grove Agents",
+		Slug:      "grove:test-grove:agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   testGroveUID.String(),
+	}
+
+	err := gs.CreateGroup(ctx, g)
+	require.NoError(t, err)
+	assert.False(t, g.Created.IsZero())
+	assert.Equal(t, store.GroupTypeGroveAgents, g.GroupType)
+
+	// Verify persisted correctly
+	got, err := gs.GetGroup(ctx, g.ID)
+	require.NoError(t, err)
+	assert.Equal(t, store.GroupTypeGroveAgents, got.GroupType)
+	assert.Equal(t, testGroveUID.String(), got.GroveID)
+}
+
+func TestGetGroupByGroveID(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Test Grove Agents",
+		Slug:      "grove:test-grove:agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   testGroveUID.String(),
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+
+	got, err := gs.GetGroupByGroveID(ctx, testGroveUID.String())
+	require.NoError(t, err)
+	assert.Equal(t, g.ID, got.ID)
+	assert.Equal(t, store.GroupTypeGroveAgents, got.GroupType)
+	assert.Equal(t, testGroveUID.String(), got.GroveID)
+}
+
+func TestGetGroupByGroveIDNotFound(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	_, err := gs.GetGroupByGroveID(ctx, uuid.New().String())
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestGetGroupMembersGroveGroup(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Create a grove_agents group linked to the test grove
+	groveGroup := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Test Grove Agents",
+		Slug:      "grove:test-grove:agents-members",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   testGroveUID.String(),
+	}
+	require.NoError(t, gs.CreateGroup(ctx, groveGroup))
+
+	// The test setup already created an agent in the test grove (testAgentUID).
+	// Create a second agent in the same grove to verify multiple agents are returned.
+	agent2UID := uuid.MustParse("20000000-0000-0000-0000-000000000002")
+	grove, err := gs.client.Grove.Get(ctx, testGroveUID)
+	require.NoError(t, err)
+	_, err = gs.client.Agent.Create().
+		SetID(agent2UID).
+		SetName("test-agent-2").
+		SetSlug("test-agent-2").
+		SetGrove(grove).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Query-time resolution should return both agents
+	members, err := gs.GetGroupMembers(ctx, groveGroup.ID)
+	require.NoError(t, err)
+	assert.Len(t, members, 2)
+
+	memberIDs := make(map[string]bool)
+	for _, m := range members {
+		assert.Equal(t, store.GroupMemberTypeAgent, m.MemberType)
+		assert.Equal(t, store.GroupMemberRoleMember, m.Role)
+		assert.Equal(t, "system", m.AddedBy)
+		memberIDs[m.MemberID] = true
+	}
+	assert.True(t, memberIDs[testAgentUID.String()])
+	assert.True(t, memberIDs[agent2UID.String()])
+}
+
+func TestGetEffectiveGroupsForAgent(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Create a grove_agents group linked to the test grove
+	groveGroup := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Test Grove Agents",
+		Slug:      "grove:test-grove:agents-eff",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   testGroveUID.String(),
+	}
+	require.NoError(t, gs.CreateGroup(ctx, groveGroup))
+
+	// Create a parent group that contains the grove group
+	parentGroup := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "All Agents Parent",
+		Slug: "all-agents-parent",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, parentGroup))
+
+	// Add grove group as child of parent
+	require.NoError(t, gs.AddGroupMember(ctx, &store.GroupMember{
+		GroupID:    parentGroup.ID,
+		MemberType: store.GroupMemberTypeGroup,
+		MemberID:   groveGroup.ID,
+		Role:       store.GroupMemberRoleMember,
+	}))
+
+	// Create an explicit group and add the agent to it
+	explicitGroup := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Explicit Group",
+		Slug: "explicit-group-eff",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, explicitGroup))
+	require.NoError(t, gs.AddGroupMember(ctx, &store.GroupMember{
+		GroupID:    explicitGroup.ID,
+		MemberType: store.GroupMemberTypeAgent,
+		MemberID:   testAgentUID.String(),
+		Role:       store.GroupMemberRoleMember,
+	}))
+
+	// Get effective groups for the agent
+	effective, err := gs.GetEffectiveGroupsForAgent(ctx, testAgentUID.String())
+	require.NoError(t, err)
+
+	// Should include: grove group, parent group (transitive), explicit group
+	found := make(map[string]bool)
+	for _, gid := range effective {
+		found[gid] = true
+	}
+	assert.True(t, found[groveGroup.ID], "expected grove group")
+	assert.True(t, found[parentGroup.ID], "expected parent group (transitive)")
+	assert.True(t, found[explicitGroup.ID], "expected explicit group")
+	assert.Len(t, effective, 3)
+}
+
+func TestGetEffectiveGroupsForAgentNoGroups(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// No grove group or explicit memberships — should return empty
+	effective, err := gs.GetEffectiveGroupsForAgent(ctx, testAgentUID.String())
+	require.NoError(t, err)
+	assert.Empty(t, effective)
+}
+
+func TestGroveGroupLifecycle(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// 1. Create a grove group (simulating what the handler does)
+	groveGroup := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Test Grove Agents",
+		Slug:      "grove:test-grove:agents-lc",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   testGroveUID.String(),
+	}
+	require.NoError(t, gs.CreateGroup(ctx, groveGroup))
+
+	// 2. Verify it can be looked up by grove ID
+	got, err := gs.GetGroupByGroveID(ctx, testGroveUID.String())
+	require.NoError(t, err)
+	assert.Equal(t, groveGroup.ID, got.ID)
+
+	// 3. Verify agents show up as members
+	members, err := gs.GetGroupMembers(ctx, groveGroup.ID)
+	require.NoError(t, err)
+	assert.Len(t, members, 1) // testAgentUID is in the test grove
+	assert.Equal(t, testAgentUID.String(), members[0].MemberID)
+
+	// 4. Delete the grove group (simulating grove deletion)
+	require.NoError(t, gs.DeleteGroup(ctx, groveGroup.ID))
+
+	// 5. Verify it's gone
+	_, err = gs.GetGroupByGroveID(ctx, testGroveUID.String())
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestListGroupsWithGroveIDFilter(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	groveID1 := testGroveUID.String()
+	groveID2 := uuid.New().String()
+
+	// Create a second grove for the filter test
+	_, err := gs.client.Grove.Create().
+		SetID(uuid.MustParse(groveID2)).
+		SetName("grove-2").
+		SetSlug("grove-2").
+		Save(ctx)
+	require.NoError(t, err)
+
+	g1 := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Grove 1 Agents",
+		Slug:      "grove:grove-1:agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   groveID1,
+	}
+	g2 := &store.Group{
+		ID:        uuid.New().String(),
+		Name:      "Grove 2 Agents",
+		Slug:      "grove:grove-2:agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   groveID2,
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g1))
+	require.NoError(t, gs.CreateGroup(ctx, g2))
+
+	result, err := gs.ListGroups(ctx, store.GroupFilter{GroveID: groveID1}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.TotalCount)
+	assert.Equal(t, g1.ID, result.Items[0].ID)
+}

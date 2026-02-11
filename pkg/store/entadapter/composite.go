@@ -102,3 +102,11 @@ func (c *CompositeStore) WouldCreateCycle(ctx context.Context, groupID, memberGr
 func (c *CompositeStore) GetEffectiveGroups(ctx context.Context, userID string) ([]string, error) {
 	return c.groups.GetEffectiveGroups(ctx, userID)
 }
+
+func (c *CompositeStore) GetGroupByGroveID(ctx context.Context, groveID string) (*store.Group, error) {
+	return c.groups.GetGroupByGroveID(ctx, groveID)
+}
+
+func (c *CompositeStore) GetEffectiveGroupsForAgent(ctx context.Context, agentID string) ([]string, error) {
+	return c.groups.GetEffectiveGroupsForAgent(ctx, agentID)
+}

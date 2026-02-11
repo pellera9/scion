@@ -426,9 +426,17 @@ type GroupStore interface {
 	// Returns true if a cycle would be created.
 	WouldCreateCycle(ctx context.Context, groupID, memberGroupID string) (bool, error)
 
+	// GetGroupByGroveID retrieves the grove_agents group associated with a grove.
+	// Returns ErrNotFound if no grove group exists for this grove.
+	GetGroupByGroveID(ctx context.Context, groveID string) (*Group, error)
+
 	// GetEffectiveGroups returns all groups a user belongs to, including
 	// transitive memberships through nested groups.
 	GetEffectiveGroups(ctx context.Context, userID string) ([]string, error)
+
+	// GetEffectiveGroupsForAgent returns all groups an agent belongs to,
+	// including the implicit grove_agents group and transitive parent groups.
+	GetEffectiveGroupsForAgent(ctx context.Context, agentID string) ([]string, error)
 }
 
 // GroupFilter defines criteria for filtering groups.
@@ -436,6 +444,7 @@ type GroupFilter struct {
 	OwnerID   string // Filter by owner
 	ParentID  string // Filter by parent group
 	GroupType string // Filter by group type ("explicit" or "grove_agents")
+	GroveID   string // Filter by grove ID (for grove_agents groups)
 }
 
 // PolicyStore defines policy-related persistence operations.

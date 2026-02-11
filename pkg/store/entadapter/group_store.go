@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ptone/scion-agent/pkg/ent"
+	"github.com/ptone/scion-agent/pkg/ent/agent"
 	"github.com/ptone/scion-agent/pkg/ent/group"
 	"github.com/ptone/scion-agent/pkg/ent/groupmembership"
 	"github.com/ptone/scion-agent/pkg/store"
@@ -73,6 +74,9 @@ func entGroupToStore(g *ent.Group) *store.Group {
 		Updated:     g.Updated,
 		CreatedBy:   g.CreatedBy,
 	}
+	if g.GroveID != nil {
+		sg.GroveID = g.GroveID.String()
+	}
 	if g.OwnerID != nil {
 		sg.OwnerID = g.OwnerID.String()
 	}
@@ -116,6 +120,13 @@ func (s *GroupStore) CreateGroup(ctx context.Context, g *store.Group) error {
 		SetGroupType(group.GroupType(g.GroupType)).
 		SetCreatedBy(g.CreatedBy)
 
+	if g.GroveID != "" {
+		groveUID, err := parseUUID(g.GroveID)
+		if err != nil {
+			return err
+		}
+		create.SetGroveID(groveUID)
+	}
 	if g.Labels != nil {
 		create.SetLabels(g.Labels)
 	}
@@ -258,6 +269,13 @@ func (s *GroupStore) ListGroups(ctx context.Context, filter store.GroupFilter, o
 			return nil, err
 		}
 		query.Where(group.HasParentGroupsWith(group.IDEQ(parentUID)))
+	}
+	if filter.GroveID != "" {
+		groveUID, err := parseUUID(filter.GroveID)
+		if err != nil {
+			return nil, err
+		}
+		query.Where(group.GroveIDEQ(groveUID))
 	}
 
 	// Get total count before pagination
@@ -422,10 +440,41 @@ func (s *GroupStore) RemoveGroupMember(ctx context.Context, groupID, memberType,
 }
 
 // GetGroupMembers returns all members of a group.
+// For grove_agents groups, membership is resolved at query time by finding
+// all agents that belong to the same grove.
 func (s *GroupStore) GetGroupMembers(ctx context.Context, groupID string) ([]store.GroupMember, error) {
 	groupUID, err := parseUUID(groupID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if this is a grove_agents group — use query-time resolution
+	g, err := s.client.Group.Get(ctx, groupUID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	if g.GroupType == group.GroupTypeGroveAgents && g.GroveID != nil {
+		// Query-time resolution: find all agents in this grove
+		agents, err := s.client.Agent.Query().
+			Where(agent.GroveIDEQ(*g.GroveID)).
+			All(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		members := make([]store.GroupMember, 0, len(agents))
+		for _, a := range agents {
+			members = append(members, store.GroupMember{
+				GroupID:    groupID,
+				MemberType: store.GroupMemberTypeAgent,
+				MemberID:   a.ID.String(),
+				Role:       store.GroupMemberRoleMember,
+				AddedAt:    a.Created,
+				AddedBy:    "system",
+			})
+		}
+		return members, nil
 	}
 
 	var members []store.GroupMember
@@ -635,6 +684,97 @@ func (s *GroupStore) GetEffectiveGroups(ctx context.Context, userID string) ([]s
 		result = append(result, current.String())
 
 		// Find parent groups (groups that contain current as a child)
+		parents, err := s.client.Group.Query().
+			Where(group.IDEQ(current)).
+			QueryParentGroups().
+			All(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, p := range parents {
+			if !visited[p.ID] {
+				queue = append(queue, p.ID)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// GetGroupByGroveID retrieves the grove_agents group associated with a grove.
+func (s *GroupStore) GetGroupByGroveID(ctx context.Context, groveID string) (*store.Group, error) {
+	uid, err := parseUUID(groveID)
+	if err != nil {
+		return nil, err
+	}
+
+	g, err := s.client.Group.Query().
+		Where(
+			group.GroupTypeEQ(group.GroupTypeGroveAgents),
+			group.GroveIDEQ(uid),
+		).
+		Only(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	return entGroupToStore(g), nil
+}
+
+// GetEffectiveGroupsForAgent returns all groups an agent belongs to,
+// including the implicit grove_agents group and transitive parent groups.
+func (s *GroupStore) GetEffectiveGroupsForAgent(ctx context.Context, agentID string) ([]string, error) {
+	uid, err := parseUUID(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the agent to find its grove_id
+	a, err := s.client.Agent.Get(ctx, uid)
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	// Collect direct group IDs: explicit memberships + implicit grove group
+	visited := make(map[uuid.UUID]bool)
+	queue := make([]uuid.UUID, 0)
+
+	// 1. Get explicit group memberships for the agent
+	memberships, err := s.client.GroupMembership.Query().
+		Where(groupmembership.AgentIDEQ(uid)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range memberships {
+		queue = append(queue, m.GroupID)
+	}
+
+	// 2. Find the implicit grove_agents group for this agent's grove
+	groveGroup, err := s.client.Group.Query().
+		Where(
+			group.GroupTypeEQ(group.GroupTypeGroveAgents),
+			group.GroveIDEQ(a.GroveID),
+		).
+		Only(ctx)
+	if err == nil {
+		queue = append(queue, groveGroup.ID)
+	}
+	// If no grove group exists, that's fine — just skip it
+
+	// 3. BFS upward through parent_groups (reuse same logic as GetEffectiveGroups)
+	var result []string
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+		result = append(result, current.String())
+
 		parents, err := s.client.Group.Query().
 			Where(group.IDEQ(current)).
 			QueryParentGroups().
