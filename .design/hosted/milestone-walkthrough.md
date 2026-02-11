@@ -85,6 +85,10 @@ All blocking scenarios have been implemented. Workspace sync was the final piece
 | - rclone integration for workspace | ✅ | `pkg/gcp/storage.go` |
 | - Signed URL pattern (like templates) | ✅ | `pkg/hubclient/workspace.go` |
 | - Incremental sync via content hashing | ✅ | `pkg/transfer/` |
+| **Workspace Bootstrap (at creation)** | ⚠️ Gap | See [sync-design.md](sync-design.md) Section 13 |
+| - Initial workspace for remote agents | ⚠️ Not implemented | Agents start with broker's local state |
+| - Non-git bootstrap via GCS | 🔲 Planned (Phase 5) | |
+| - Git bootstrap via clone/fetch | 🔲 Deferred (Phase 6) | Pending remote git workflow design |
 
 ### 2.4 Implementation Notes
 
@@ -276,7 +280,13 @@ scion sync to my-agent --exclude "*.log" --exclude "tmp/**"
 - 15-minute signed URL expiry (same as templates)
 - No file size limits (GCS handles large files natively)
 
-**No Further Implementation Work Required.**
+**Known Gap — Workspace Bootstrap at Creation:**
+
+On-demand workspace sync (above) is complete, but there is no mechanism to provision the agent's **initial workspace** when it is created on a remote Runtime Broker. Today, the agent starts with whatever repository state exists on the broker's local filesystem, not the CLI user's workspace. This means the agent may begin working against stale or incorrect code.
+
+This gap is documented and designed in [sync-design.md](sync-design.md) Section 13 ("Workspace Bootstrap at Agent Creation"). The design covers:
+- **Non-git workspaces:** GCS-based upload before agent start (Phase 5 — targeted for near-term implementation).
+- **Git-backed groves:** Git clone/fetch on broker from remote (Phase 6 — deferred pending remote git workflow design).
 
 ---
 

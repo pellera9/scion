@@ -1103,7 +1103,11 @@ Workspace bootstrap strategy depends on whether the grove is backed by a git rep
 | **Git-backed grove** | Git clone/fetch on broker from remote | Git is purpose-built for distributing repository state efficiently. Avoids uploading potentially large repos through GCS. The remote is the single source of truth. |
 | **Non-git workspace** | GCS signed URL sync | No git remote to pull from. Reuse the existing transfer infrastructure from on-demand sync (Sections 4-9). |
 
+> **Implementation note:** The non-git GCS bootstrap (Section 13.4) is targeted for near-term implementation. The git-backed bootstrap (Section 13.3) is deferred until a comprehensive remote git workflow design is produced, as git credential management, remote access patterns, and branch lifecycle across distributed brokers require a broader design scope. The git-specific notes below are retained to inform that future design.
+
 ### 13.3 Git-Backed Workspace Bootstrap
+
+> **Status:** Deferred — pending a dedicated remote git workflow design document. The design below captures the intended approach and will be refined when that work is undertaken.
 
 When the grove is a git repository, the broker should obtain workspace content by cloning or fetching from the git remote — not by relying on a pre-existing local checkout.
 
@@ -1230,6 +1234,8 @@ func resolveWorkspace(req CreateAgentRequest) (string, error) {
 ```
 
 #### 13.3.5 Git Credential Access on Broker
+
+> **Note:** This section is provisional and subject to revision as part of the future remote git workflow design.
 
 The broker needs git credentials to clone private repositories. This is a broker-level configuration concern, not a per-request concern:
 
@@ -1381,14 +1387,14 @@ scion start my-agent "Fix the bug"
 | `pkg/agent/provision.go` | Factor out workspace resolution so broker can call git-remote path |
 | `pkg/store/models.go` | Store `GitRemoteURL`, `GitRef` on agent record |
 
-### 13.7 Open Questions
+### 13.7 Resolved Questions
 
-| # | Question | Options | Notes |
-|---|----------|---------|-------|
-| Q1 | **Should the CLI block until the agent is fully provisioned (workspace populated + started)?** | (a) Yes, poll until running. (b) Return immediately with `provisioning` status. | For git bootstrap the clone may take time for large repos. For GCS bootstrap the CLI already blocks during upload. |
-| Q2 | **Should the broker cache bare clones across agents in the same grove?** | (a) Yes, shared `repos/<groveID>/` directory. (b) Per-agent clone. | Shared clone saves disk/network but needs locking for concurrent creates. |
-| Q3 | **How should `scion create` (without start) interact with bootstrap?** | (a) `create` does not bootstrap (workspace populated at `start` time). (b) `create` triggers bootstrap immediately. | Option (a) is simpler and matches the current `create` vs `start` distinction. |
-| Q4 | **Should submodules be supported in the git bootstrap path?** | (a) No, defer. (b) Yes, `--recurse-submodules` on clone. | Submodules add complexity; deferring is fine unless a use case demands it. |
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| Q1 | **Should the CLI block until the agent is fully provisioned?** | **Yes, poll until running.** | The CLI should poll agent status until the agent transitions to `running`. The broker should update agent status with provisioning detail (e.g., `provisioning:cloning`, `provisioning:syncing`) so the CLI can display meaningful progress. For GCS bootstrap, the CLI already blocks during upload; for git bootstrap (deferred), polling handles variable clone times. |
+| Q2 | **Should the broker cache bare clones across agents in the same grove?** | **Deferred** | Deferred to the future remote git workflow design. The question of shared clones, locking, and lifecycle management is closely tied to how brokers manage git state at scale. Carried forward as an open question for that design. |
+| Q3 | **How should `scion create` (without start) interact with bootstrap?** | **Option (a): `create` does not bootstrap.** | Workspace provisioning happens at `start` time, not `create` time. This matches the current `create` vs `start` distinction and supports late binding of configuration. See also: config and late-binding patterns (to be documented separately). |
+| Q4 | **Should submodules be supported in the git bootstrap path?** | **No, defer.** | Submodules are not supported in the initial implementation. This can be revisited if a concrete use case requires it. |
 
 ---
 
@@ -1419,32 +1425,32 @@ All open questions have been resolved with the following decisions:
 
 ## 15. Implementation Plan
 
-### Phase 0: Shared Transfer Package (Day 1)
+### Phase 0: Shared Transfer Package ✅
 
 **Goal:** Extract common file transfer code into `pkg/transfer` for reuse across templates and workspaces.
 
-- [ ] Create `pkg/transfer/types.go`:
-  - [ ] `FileInfo` struct (consolidate from `hubclient.FileInfo` and `hubclient.TemplateFile`)
-  - [ ] `Manifest` struct (consolidate from `hubclient.TemplateManifest`)
-  - [ ] `UploadURLInfo` struct
-  - [ ] `DownloadURLInfo` struct
-- [ ] Create `pkg/transfer/collect.go`:
-  - [ ] Move `CollectFiles()` from `pkg/hubclient/manifest.go`
-  - [ ] Move `ManifestBuilder` from `pkg/hubclient/manifest.go`
-  - [ ] Move `ComputeContentHash()` from `pkg/hubclient/manifest.go`
-  - [ ] Add configurable exclude patterns
-- [ ] Create `pkg/transfer/client.go`:
-  - [ ] `UploadFiles()` - upload to signed URLs (extract from `hubclient.UploadFile`)
-  - [ ] `DownloadFiles()` - download from signed URLs (extract from `hubclient.DownloadFile`)
-  - [ ] Progress reporting callback
-- [ ] Update `pkg/hubclient/templates.go`:
-  - [ ] Import and use `pkg/transfer` types
-  - [ ] Delegate to `transfer.Client` for file operations
-  - [ ] Maintain backward-compatible API
-- [ ] Update `pkg/hub/template_handlers.go`:
-  - [ ] Use `transfer.FileInfo` in request/response types
-  - [ ] Keep existing handler logic
-- [ ] Add unit tests for `pkg/transfer`
+- [x] Create `pkg/transfer/types.go`:
+  - [x] `FileInfo` struct (consolidate from `hubclient.FileInfo` and `hubclient.TemplateFile`)
+  - [x] `Manifest` struct (consolidate from `hubclient.TemplateManifest`)
+  - [x] `UploadURLInfo` struct
+  - [x] `DownloadURLInfo` struct
+- [x] Create `pkg/transfer/collect.go`:
+  - [x] Move `CollectFiles()` from `pkg/hubclient/manifest.go`
+  - [x] Move `ManifestBuilder` from `pkg/hubclient/manifest.go`
+  - [x] Move `ComputeContentHash()` from `pkg/hubclient/manifest.go`
+  - [x] Add configurable exclude patterns
+- [x] Create `pkg/transfer/client.go`:
+  - [x] `UploadFiles()` - upload to signed URLs (extract from `hubclient.UploadFile`)
+  - [x] `DownloadFiles()` - download from signed URLs (extract from `hubclient.DownloadFile`)
+  - [x] Progress reporting callback
+- [x] Update `pkg/hubclient/templates.go`:
+  - [x] Import and use `pkg/transfer` types
+  - [x] Delegate to `transfer.Client` for file operations
+  - [x] Maintain backward-compatible API
+- [x] Update `pkg/hub/template_handlers.go`:
+  - [x] Uses `store.TemplateFile` (structurally equivalent to `transfer.FileInfo`)
+  - [x] Keep existing handler logic
+- [x] Add unit tests for `pkg/transfer`
 
 ### Phase 1: Storage Path & Hub Endpoints (Day 2) ✅
 
@@ -1515,22 +1521,45 @@ All open questions have been resolved with the following decisions:
   - [x] Update success criteria (7/7)
 - [x] Update test setup commands in walkthrough
 
-### Phase Diagram
+### Phase 5: Non-Git Workspace Bootstrap (Section 13.4)
 
-```
-Day 1          Day 2              Day 3              Day 4          Day 5
-  │              │                  │                  │              │
-  ▼              ▼                  ▼                  ▼              ▼
-┌──────────┐  ┌───────────────┐  ┌───────────────┐  ┌──────────┐  ┌─────────┐
-│ Phase 0  │  │   Phase 1     │  │   Phase 2     │  │ Phase 3  │  │ Phase 4 │
-│          │  │               │  │               │  │          │  │         │
-│ transfer │──│ Hub endpoints │──│ Runtime Broker  │──│ CLI +    │──│ Testing │
-│ package  │  │ + storage     │  │ handlers      │  │ hubclient│  │ + docs  │
-└──────────┘  └───────────────┘  └───────────────┘  └──────────┘  └─────────┘
-     │              │                  │                  │
-     └──────────────┴──────────────────┴──────────────────┘
-                    All use pkg/transfer
-```
+**Goal:** Implement GCS-based workspace bootstrap for non-git workspaces at agent creation time.
+
+- [ ] Add `provisioning` agent status to `pkg/store/models.go` and Hub status transitions
+- [ ] Update `pkg/hubclient/types.go`:
+  - [ ] Add `WorkspaceFiles` (file manifest) to `CreateAgentRequest`
+- [ ] Update `pkg/hub/handlers.go`:
+  - [ ] Accept optional file manifest in create request
+  - [ ] When manifest present, create agent in `provisioning` status and return signed upload URLs
+- [ ] Update `pkg/hub/workspace_handlers.go`:
+  - [ ] Relax `handleWorkspaceSyncToFinalize` to accept `provisioning` status
+  - [ ] On finalize for `provisioning` agent, trigger dispatch to broker with `WorkspaceStoragePath`
+- [ ] Update `pkg/hub/httpdispatcher.go`:
+  - [ ] Add `WorkspaceStoragePath` field to `RemoteCreateAgentRequest`
+  - [ ] Pass through on dispatch
+- [ ] Update `pkg/runtimebroker/handlers.go`:
+  - [ ] When `WorkspaceStoragePath` is set, download workspace from GCS before starting container
+  - [ ] Create empty workspace directory, populate from GCS, then start
+- [ ] Update `cmd/create.go` / `cmd/common.go`:
+  - [ ] Detect non-git grove in Hub mode
+  - [ ] Collect workspace files, include manifest in create request
+  - [ ] Upload files to GCS via signed URLs
+  - [ ] Call finalize-and-start
+  - [ ] Poll agent status until `running`
+- [ ] Add CLI progress output for workspace upload during creation
+- [ ] Add tests for bootstrap flow (Hub handler, broker handler, CLI)
+
+### Phase 6: Git Workspace Bootstrap (Section 13.3) — Deferred
+
+**Goal:** Implement git-based workspace bootstrap for git-backed groves. Deferred pending a dedicated remote git workflow design.
+
+- [ ] Design: Produce remote git workflow design document covering credential management, remote access patterns, and branch lifecycle
+- [ ] CLI git validation (unpushed commits check, dirty tree warning)
+- [ ] Add `GitRemoteURL`, `GitRef` fields to `CreateAgentRequest` and `RemoteCreateAgentRequest`
+- [ ] Hub passthrough of git fields to broker dispatch and agent record
+- [ ] Broker git clone/fetch workspace provisioning (bare clone cache, worktree creation)
+- [ ] Broker git credential configuration
+- [ ] Integration tests for git bootstrap path
 
 ---
 
