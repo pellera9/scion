@@ -17,27 +17,37 @@ import (
 )
 
 var (
-	grovePath    string
-	globalMode   bool
-	profile      string
-	outputFormat string
-	hubEndpoint  string // Hub API endpoint override
-	noHub        bool   // Disable Hub integration for this invocation
-	autoConfirm  bool   // Auto-confirm prompts (non-interactive mode)
-	autoHelp     = true // Default to true, updated in PersistentPreRunE
-	debugMode    bool   // Enable debug output
+	grovePath      string
+	globalMode     bool
+	profile        string
+	outputFormat   string
+	hubEndpoint    string // Hub API endpoint override
+	noHub          bool   // Disable Hub integration for this invocation
+	autoConfirm    bool   // Auto-confirm prompts (--yes flag)
+	nonInteractive bool   // Full non-interactive mode (implies --yes, errors on ambiguous prompts)
+	autoHelp       = true // Default to true, updated in PersistentPreRunE
+	debugMode      bool   // Enable debug output
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "scion",
 	Short: "A container-based orchestration tool for managing concurrent LLM agents",
-	Long: `Scion is a container-based orchestration tool for managing 
-concurrent LLM agents. It enables parallel execution of specialized 
-sub-agents with isolated identities, credentials, and workspaces.`,
+	Long: `Scion is a container-based orchestration tool for managing
+concurrent LLM agents. It enables parallel execution of specialized
+sub-agents with isolated identities, credentials, and workspaces.
+
+Use --non-interactive for scripted/automated usage. This implies --yes
+and causes any prompt that cannot be resolved without user input to
+return an error instead of blocking.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// --non-interactive implies --yes
+		if nonInteractive {
+			autoConfirm = true
+		}
+
 		// Enable debug mode if --debug flag is set
 		if debugMode {
 			util.EnableDebug()
@@ -156,8 +166,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&hubEndpoint, "hub", "", "Hub API endpoint URL (overrides SCION_HUB_ENDPOINT)")
 	rootCmd.PersistentFlags().BoolVar(&noHub, "no-hub", false, "Disable Hub integration for this invocation (local-only mode)")
 
-	// Non-interactive mode flag
-	rootCmd.PersistentFlags().BoolVarP(&autoConfirm, "yes", "y", false, "Auto-confirm prompts (non-interactive mode)")
+	// Confirmation and non-interactive flags
+	rootCmd.PersistentFlags().BoolVarP(&autoConfirm, "yes", "y", false, "Auto-confirm prompts with default values")
+	rootCmd.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Non-interactive mode: implies --yes, errors on ambiguous prompts")
 
 	// Debug mode flag
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug output (equivalent to SCION_DEBUG=1)")
@@ -188,9 +199,16 @@ func IsNoHub() bool {
 	return noHub
 }
 
-// IsAutoConfirm returns true if prompts should be auto-confirmed (non-interactive mode).
+// IsAutoConfirm returns true if prompts should be auto-confirmed.
 func IsAutoConfirm() bool {
 	return autoConfirm
+}
+
+// IsNonInteractive returns true if the CLI is running in full non-interactive mode.
+// This implies autoConfirm but additionally causes ambiguous prompts (those without
+// a deterministic default) to return errors instead of blocking on stdin.
+func IsNonInteractive() bool {
+	return nonInteractive
 }
 
 // printDevAuthWarningIfNeeded checks if dev auth is being used with Hub and prints a warning.

@@ -227,6 +227,66 @@ hub:
 	}
 }
 
+func TestNonInteractiveImpliesAutoConfirm(t *testing.T) {
+	// Backup original values
+	origAutoConfirm := autoConfirm
+	origNonInteractive := nonInteractive
+	origFormat := outputFormat
+	defer func() {
+		autoConfirm = origAutoConfirm
+		nonInteractive = origNonInteractive
+		outputFormat = origFormat
+	}()
+
+	t.Run("nonInteractive sets autoConfirm true", func(t *testing.T) {
+		autoConfirm = false
+		nonInteractive = true
+		outputFormat = ""
+
+		// Run PersistentPreRunE - it should set autoConfirm = true
+		_ = rootCmd.PersistentPreRunE(&cobra.Command{Use: "scion"}, []string{})
+
+		assert.True(t, autoConfirm, "autoConfirm should be true when nonInteractive is set")
+		assert.True(t, IsAutoConfirm(), "IsAutoConfirm() should return true")
+		assert.True(t, IsNonInteractive(), "IsNonInteractive() should return true")
+	})
+
+	t.Run("autoConfirm without nonInteractive", func(t *testing.T) {
+		autoConfirm = true
+		nonInteractive = false
+		outputFormat = ""
+
+		_ = rootCmd.PersistentPreRunE(&cobra.Command{Use: "scion"}, []string{})
+
+		assert.True(t, autoConfirm, "autoConfirm should remain true")
+		assert.True(t, IsAutoConfirm(), "IsAutoConfirm() should return true")
+		assert.False(t, IsNonInteractive(), "IsNonInteractive() should return false")
+	})
+
+	t.Run("neither flag set", func(t *testing.T) {
+		autoConfirm = false
+		nonInteractive = false
+		outputFormat = ""
+
+		_ = rootCmd.PersistentPreRunE(&cobra.Command{Use: "scion"}, []string{})
+
+		assert.False(t, autoConfirm, "autoConfirm should remain false")
+		assert.False(t, IsAutoConfirm(), "IsAutoConfirm() should return false")
+		assert.False(t, IsNonInteractive(), "IsNonInteractive() should return false")
+	})
+}
+
+func TestNonInteractiveFlagRegistered(t *testing.T) {
+	// Verify the --non-interactive flag exists on the root command
+	flag := rootCmd.PersistentFlags().Lookup("non-interactive")
+	assert.NotNil(t, flag, "--non-interactive flag should be registered")
+	assert.Equal(t, "false", flag.DefValue, "default value should be false")
+
+	// Verify --yes flag still exists
+	yesFlag := rootCmd.PersistentFlags().Lookup("yes")
+	assert.NotNil(t, yesFlag, "--yes flag should be registered")
+}
+
 func TestIsLocalEndpoint(t *testing.T) {
 	tests := []struct {
 		endpoint string

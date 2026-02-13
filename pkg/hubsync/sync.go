@@ -525,11 +525,7 @@ func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult, au
 
 			// Only prompt if interactive and not auto-confirm
 			if autoConfirm || !util.IsTerminal() {
-				brokerWord := "broker"
-				if len(availableBrokers) > 1 {
-					brokerWord = "brokers"
-				}
-				return fmt.Errorf("failed to register agent '%s': %d runtime %s available, specify a broker via Hub config or --broker flag (original error: %w)", name, len(availableBrokers), brokerWord, err)
+				return fmt.Errorf("failed to register agent '%s': multiple runtime brokers available, specify a broker with --broker <id>", name)
 			}
 
 			reader := bufio.NewReader(os.Stdin)

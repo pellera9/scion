@@ -478,7 +478,17 @@ func truncateHash(hash string) string {
 }
 
 // promptChoice prompts the user for a choice from a list of options.
+// In non-interactive or auto-confirm mode, returns the default choice immediately.
+// If no default is available in non-interactive mode, returns an error.
 func promptChoice(prompt, defaultChoice string, validChoices []string) (string, error) {
+	if autoConfirm {
+		if defaultChoice != "" {
+			fmt.Printf("%s: auto-selected %s\n", prompt, defaultChoice)
+			return defaultChoice, nil
+		}
+		return "", fmt.Errorf("cannot prompt for %s in non-interactive mode: no default available, specify choice via flags", prompt)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {

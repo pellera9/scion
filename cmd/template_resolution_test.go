@@ -151,6 +151,34 @@ func TestFormatTemplateNotFoundErrorNoGrove(t *testing.T) {
 	}
 }
 
+func TestPromptChoiceAutoConfirm(t *testing.T) {
+	// Backup original values
+	origAutoConfirm := autoConfirm
+	defer func() { autoConfirm = origAutoConfirm }()
+
+	t.Run("auto-confirm with default returns default", func(t *testing.T) {
+		autoConfirm = true
+		choice, err := promptChoice("Choice", "H", []string{"U", "H", "C"})
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if choice != "H" {
+			t.Errorf("expected default choice 'H', got %q", choice)
+		}
+	})
+
+	t.Run("auto-confirm without default returns error", func(t *testing.T) {
+		autoConfirm = true
+		_, err := promptChoice("Choice", "", []string{"U", "H", "C"})
+		if err == nil {
+			t.Fatal("expected error for no default in auto-confirm mode")
+		}
+		if !contains(err.Error(), "non-interactive") {
+			t.Errorf("error should mention non-interactive mode, got: %s", err.Error())
+		}
+	})
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
 }

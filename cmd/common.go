@@ -572,7 +572,7 @@ func createAgentWithBrokerResolution(ctx context.Context, hubCtx *HubContext, gr
 
 		// Only prompt if interactive and not auto-confirm
 		if autoConfirm || !util.IsTerminal() {
-			return nil, err
+			return nil, fmt.Errorf("multiple runtime brokers available, specify a broker with --broker <id>")
 		}
 
 		reader := bufio.NewReader(os.Stdin)

@@ -27,6 +27,11 @@ import (
 // If autoConfirm is true, returns defaultYes without prompting.
 func ConfirmAction(prompt string, defaultYes bool, autoConfirm bool) bool {
 	if autoConfirm {
+		if defaultYes {
+			fmt.Printf("%s: auto-confirmed Yes\n", prompt)
+		} else {
+			fmt.Printf("%s: auto-confirmed No\n", prompt)
+		}
 		return defaultYes
 	}
 
