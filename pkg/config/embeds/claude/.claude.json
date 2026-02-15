@@ -28,5 +28,6 @@
   "officialMarketplaceAutoInstallAttempted": true,
   "officialMarketplaceAutoInstalled": true,
   "bypassPermissionsModeAccepted": true,
+  "effortCalloutDismissed": true,
   "lastReleaseNotesSeen": "2.0.76"
 }
