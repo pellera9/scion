@@ -20,7 +20,7 @@ import (
 	"testing"
 )
 
-func TestInitProject_CreatesClaudeTemplate(t *testing.T) {
+func TestInitProject_CreatesDefaultAgnosticTemplate(t *testing.T) {
 	// Create a temporary directory for the project
 	tempDir, err := os.MkdirTemp("", "scion-init-test")
 	if err != nil {
@@ -34,15 +34,26 @@ func TestInitProject_CreatesClaudeTemplate(t *testing.T) {
 		t.Fatalf("InitProject failed: %v", err)
 	}
 
-	// Verify that templates/claude exists
-	claudeDir := filepath.Join(tempDir, "templates", "claude")
-	if _, err := os.Stat(claudeDir); os.IsNotExist(err) {
-		t.Errorf("Expected templates/claude to be created, but it was not")
+	// Verify that templates/default exists (agnostic template)
+	defaultDir := filepath.Join(tempDir, "templates", "default")
+	if _, err := os.Stat(defaultDir); os.IsNotExist(err) {
+		t.Errorf("Expected templates/default to be created, but it was not")
 	}
 
-	// Verify a file inside templates/claude exists to be sure (now YAML)
-	claudeSettings := filepath.Join(claudeDir, "scion-agent.yaml")
-	if _, err := os.Stat(claudeSettings); os.IsNotExist(err) {
-		t.Errorf("Expected templates/claude/scion-agent.yaml to be created, but it was not")
+	// Verify agnostic template files exist
+	expectedFiles := []string{"scion-agent.yaml", "agents.md", "system-prompt.md"}
+	for _, f := range expectedFiles {
+		path := filepath.Join(defaultDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected %s to be created in default template, but it was not", f)
+		}
+	}
+
+	// Verify per-harness templates were NOT created
+	for _, name := range []string{"gemini", "claude", "opencode", "codex"} {
+		perHarnessDir := filepath.Join(tempDir, "templates", name)
+		if _, err := os.Stat(perHarnessDir); !os.IsNotExist(err) {
+			t.Errorf("Expected per-harness template %s to NOT be created at project level", name)
+		}
 	}
 }

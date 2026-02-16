@@ -15,7 +15,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,8 +51,8 @@ func TestCreateTemplate(t *testing.T) {
 
 	// Test creating a project template
 	tplName := "test-tpl"
-	mockGemini := &MockHarness{NameVal: "gemini", EmbedDirVal: "gemini", ConfigDirVal: ".gemini"}
-	err = CreateTemplate(tplName, mockGemini, false)
+
+	err = CreateTemplate(tplName, false)
 	if err != nil {
 		t.Fatalf("failed to create project template: %v", err)
 	}
@@ -63,11 +62,11 @@ func TestCreateTemplate(t *testing.T) {
 		t.Errorf("expected template directory %s to exist", expectedPath)
 	}
 
-	// Verify key files exist (scion-agent is now YAML)
+	// Verify key agnostic template files exist
 	files := []string{
 		"scion-agent.yaml",
-		filepath.Join("home", ".bashrc"),
-		filepath.Join("home", ".gemini", "settings.json"),
+		"agents.md",
+		"system-prompt.md",
 	}
 	for _, f := range files {
 		if _, err := os.Stat(filepath.Join(expectedPath, f)); os.IsNotExist(err) {
@@ -77,7 +76,7 @@ func TestCreateTemplate(t *testing.T) {
 
 	// Test creating a global template
 	globalTplName := "global-tpl"
-	err = CreateTemplate(globalTplName, mockGemini, true)
+	err = CreateTemplate(globalTplName, true)
 	if err != nil {
 		t.Fatalf("failed to create global template: %v", err)
 	}
@@ -88,7 +87,7 @@ func TestCreateTemplate(t *testing.T) {
 	}
 
 	// Test duplicate template creation fails
-	err = CreateTemplate(tplName, mockGemini, false)
+	err = CreateTemplate(tplName, false)
 	if err == nil {
 		t.Error("expected error when creating duplicate template, got nil")
 	}
@@ -122,12 +121,12 @@ func TestDeleteTemplate(t *testing.T) {
 
 	// Create templates to delete
 	tplName := "test-tpl-delete"
-	mockGemini := &MockHarness{NameVal: "gemini", EmbedDirVal: "gemini", ConfigDirVal: ".gemini"}
-	if err := CreateTemplate(tplName, mockGemini, false); err != nil {
+
+	if err := CreateTemplate(tplName, false); err != nil {
 		t.Fatal(err)
 	}
 	globalTplName := "global-tpl-delete"
-	if err := CreateTemplate(globalTplName, mockGemini, true); err != nil {
+	if err := CreateTemplate(globalTplName, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,16 +185,16 @@ func TestUpdateDefaultTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Initialize project (creates default templates)
+	// Initialize project (creates default agnostic template)
 	if err := InitProject("", GetMockHarnesses()); err != nil {
 		t.Fatal(err)
 	}
 
-	geminiDefaultScionYAML := filepath.Join(projectDir, "templates", "gemini", "scion-agent.yaml")
+	defaultScionYAML := filepath.Join(projectDir, "templates", "default", "scion-agent.yaml")
 
 	// Corrupt the default template file
 	corruptContent := "CORRUPT"
-	if err := os.WriteFile(geminiDefaultScionYAML, []byte(corruptContent), 0644); err != nil {
+	if err := os.WriteFile(defaultScionYAML, []byte(corruptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,24 +203,13 @@ func TestUpdateDefaultTemplates(t *testing.T) {
 		t.Fatalf("failed to update default templates: %v", err)
 	}
 
-	// Verify it was restored
-	data, err := os.ReadFile(geminiDefaultScionYAML)
+	// Verify the default agnostic template was restored
+	data, err := os.ReadFile(defaultScionYAML)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) == corruptContent {
 		t.Error("expected scion-agent.yaml to be overwritten, but it still contains corrupt content")
-	}
-
-	// Verify settings.json exists and is valid JSON
-	geminiSettingsPath := filepath.Join(projectDir, "templates", "gemini", "home", ".gemini", "settings.json")
-	settingsData, err := os.ReadFile(geminiSettingsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var settings map[string]interface{}
-	if err := json.Unmarshal(settingsData, &settings); err != nil {
-		t.Fatalf("failed to unmarshal settings.json: %v", err)
 	}
 }
 
@@ -335,8 +323,8 @@ func TestCloneTemplate(t *testing.T) {
 
 	// Create a source template
 	srcName := "src-tpl"
-	mockGemini := &MockHarness{NameVal: "gemini", EmbedDirVal: "gemini", ConfigDirVal: ".gemini"}
-	if err := CreateTemplate(srcName, mockGemini, false); err != nil {
+
+	if err := CreateTemplate(srcName, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -351,11 +339,11 @@ func TestCloneTemplate(t *testing.T) {
 		t.Errorf("expected cloned template directory %s to exist", expectedPath)
 	}
 
-	// Verify key files exist in destination (scion-agent is now YAML)
+	// Verify key agnostic template files exist in destination
 	files := []string{
 		"scion-agent.yaml",
-		filepath.Join("home", ".bashrc"),
-		filepath.Join("home", ".gemini", "settings.json"),
+		"agents.md",
+		"system-prompt.md",
 	}
 	for _, f := range files {
 		if _, err := os.Stat(filepath.Join(expectedPath, f)); os.IsNotExist(err) {

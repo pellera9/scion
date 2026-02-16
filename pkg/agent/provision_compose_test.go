@@ -389,6 +389,11 @@ func TestComposition_FullInitProjectFlow(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	os.Setenv("HOME", tmpDir)
 
+	// InitMachine seeds global harness-configs (required for agent creation)
+	if err := config.InitMachine(getTestHarnesses()); err != nil {
+		t.Fatalf("InitMachine failed: %v", err)
+	}
+
 	projectDir := filepath.Join(tmpDir, "project")
 	projectScionDir := filepath.Join(projectDir, ".scion")
 	if err := config.InitProject(projectScionDir, getTestHarnesses()); err != nil {

@@ -112,8 +112,8 @@ func TestLoadVersionedSettings_DefaultsOnly(t *testing.T) {
 	assert.Equal(t, "1", vs.SchemaVersion)
 	assert.Equal(t, "local", vs.ActiveProfile)
 	assert.Equal(t, "gemini", vs.DefaultTemplate)
-	assert.Contains(t, vs.HarnessConfigs, "gemini")
-	assert.Equal(t, "gemini", vs.HarnessConfigs["gemini"].Harness)
+	assert.Equal(t, "gemini", vs.DefaultHarnessConfig)
+	// harness_configs block is no longer in default settings (lives on disk as harness-config dirs)
 	assert.Contains(t, vs.Runtimes, "docker")
 	assert.Equal(t, "docker", vs.Runtimes["docker"].Type)
 }
@@ -651,15 +651,9 @@ func TestGetDefaultSettingsData_ProducesSameEffectiveDefaults(t *testing.T) {
 	var settings Settings
 	require.NoError(t, json.Unmarshal(data, &settings))
 
-	// Should have all expected harnesses
-	assert.Contains(t, settings.Harnesses, "gemini")
-	assert.Contains(t, settings.Harnesses, "claude")
-	assert.Contains(t, settings.Harnesses, "opencode")
-	assert.Contains(t, settings.Harnesses, "codex")
-
-	// Should have expected images
-	assert.Contains(t, settings.Harnesses["gemini"].Image, "scion-gemini")
-	assert.Contains(t, settings.Harnesses["claude"].Image, "scion-claude")
+	// Harness configs are no longer inline in settings (they live on disk as harness-config dirs)
+	// So the Harnesses map should be empty or nil
+	assert.Empty(t, settings.Harnesses, "harness configs should not be inline in default settings")
 
 	// Should have expected runtimes
 	assert.Contains(t, settings.Runtimes, "docker")
@@ -989,9 +983,34 @@ func TestResolveHarnessConfig_NotFound(t *testing.T) {
 		},
 	}
 
-	_, err := vs.ResolveHarnessConfig("", "nonexistent")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "nonexistent")
+	// When the config name is not found, an empty base should be returned (not an error)
+	hc, err := vs.ResolveHarnessConfig("", "nonexistent")
+	require.NoError(t, err)
+	assert.Empty(t, hc.Image, "empty base should have no image")
+	assert.Empty(t, hc.User, "empty base should have no user")
+	assert.Empty(t, hc.Harness, "empty base should have no harness")
+}
+
+func TestResolveHarnessConfig_NotFoundWithProfileOverrides(t *testing.T) {
+	vs := &VersionedSettings{
+		ActiveProfile: "staging",
+		Profiles: map[string]V1ProfileConfig{
+			"staging": {
+				HarnessOverrides: map[string]V1HarnessOverride{
+					"custom": {
+						Image: "custom-image:latest",
+						Env:   map[string]string{"KEY": "val"},
+					},
+				},
+			},
+		},
+	}
+
+	// Even when base config not found, profile overrides should apply
+	hc, err := vs.ResolveHarnessConfig("", "custom")
+	require.NoError(t, err)
+	assert.Equal(t, "custom-image:latest", hc.Image)
+	assert.Equal(t, "val", hc.Env["KEY"])
 }
 
 func TestResolveHarnessConfig_ProfileNotFound(t *testing.T) {

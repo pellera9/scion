@@ -429,14 +429,15 @@ func TestWriteTemplate_Claude(t *testing.T) {
 	require.NoError(t, err)
 	assert.DirExists(t, path)
 
-	// Check scion-agent.yaml exists and has correct harness
+	// Check scion-agent.yaml exists and has correct default_harness_config
 	configPath := filepath.Join(path, "scion-agent.yaml")
 	assert.FileExists(t, configPath)
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	var cfg api.ScionConfig
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
-	assert.Equal(t, "claude", cfg.Harness)
+	assert.Equal(t, "claude", cfg.DefaultHarnessConfig)
+	assert.Empty(t, cfg.Harness, "agnostic templates should not have harness field")
 	assert.Equal(t, "sonnet", cfg.Model)
 
 	// Check instruction file
@@ -472,7 +473,8 @@ func TestWriteTemplate_Gemini(t *testing.T) {
 	require.NoError(t, err)
 	var cfg api.ScionConfig
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
-	assert.Equal(t, "gemini", cfg.Harness)
+	assert.Equal(t, "gemini", cfg.DefaultHarnessConfig)
+	assert.Empty(t, cfg.Harness, "agnostic templates should not have harness field")
 	assert.Equal(t, "gemini-2.5-pro", cfg.Model)
 
 	// Check instruction file
@@ -530,13 +532,14 @@ func TestWriteTemplate_NoModel(t *testing.T) {
 	path, err := WriteTemplate(agent, templatesDir, false)
 	require.NoError(t, err)
 
-	// Config should have harness but no model
+	// Config should have default_harness_config but no model
 	configPath := filepath.Join(path, "scion-agent.yaml")
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	var cfg api.ScionConfig
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
-	assert.Equal(t, "claude", cfg.Harness)
+	assert.Equal(t, "claude", cfg.DefaultHarnessConfig)
+	assert.Empty(t, cfg.Harness, "agnostic templates should not have harness field")
 	assert.Empty(t, cfg.Model)
 }
 

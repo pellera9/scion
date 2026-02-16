@@ -62,8 +62,8 @@ func WriteTemplate(agent *ImportedAgent, templatesDir string, force bool) (strin
 		}
 	}
 
-	// Update scion-agent.yaml with model if specified
-	if agent.Model != "" {
+	// Update scion-agent.yaml with model and default_harness_config
+	if agent.Model != "" || agent.Harness != "" {
 		if err := updateScionAgentConfig(templateDir, agent); err != nil {
 			return "", fmt.Errorf("failed to update scion-agent.yaml: %w", err)
 		}
@@ -85,8 +85,8 @@ func getInstructionFilePath(harnessName, templateDir string) string {
 	}
 }
 
-// updateScionAgentConfig reads the existing scion-agent.yaml, updates the model field,
-// and writes it back.
+// updateScionAgentConfig reads the existing scion-agent.yaml, updates the model
+// and default_harness_config fields, and writes it back.
 func updateScionAgentConfig(templateDir string, agent *ImportedAgent) error {
 	configPath := filepath.Join(templateDir, "scion-agent.yaml")
 
@@ -102,6 +102,9 @@ func updateScionAgentConfig(templateDir string, agent *ImportedAgent) error {
 
 	if agent.Model != "" {
 		cfg.Model = agent.Model
+	}
+	if agent.Harness != "" {
+		cfg.DefaultHarnessConfig = agent.Harness
 	}
 
 	out, err := yaml.Marshal(&cfg)

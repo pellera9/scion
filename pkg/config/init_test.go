@@ -307,3 +307,101 @@ func TestInitProject_SeedsAgnosticTemplate(t *testing.T) {
 		}
 	}
 }
+
+func TestInitProject_NoHarnessConfigs(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	projectDir := filepath.Join(tmpDir, "project", DotScion)
+
+	if err := InitProject(projectDir, GetMockHarnesses()); err != nil {
+		t.Fatalf("InitProject failed: %v", err)
+	}
+
+	// Verify harness-configs directory was NOT created at project level
+	harnessConfigsDir := filepath.Join(projectDir, "harness-configs")
+	if _, err := os.Stat(harnessConfigsDir); !os.IsNotExist(err) {
+		t.Errorf("expected harness-configs directory to NOT exist at project level, but it does at %s", harnessConfigsDir)
+	}
+
+	// Verify per-harness template directories were NOT created
+	for _, name := range []string{"gemini", "claude", "opencode", "codex"} {
+		perHarnessTplDir := filepath.Join(projectDir, "templates", name)
+		if _, err := os.Stat(perHarnessTplDir); !os.IsNotExist(err) {
+			t.Errorf("expected per-harness template dir %s to NOT exist at project level", perHarnessTplDir)
+		}
+	}
+}
+
+func TestInitMachine_SeedsAll(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	if err := InitMachine(GetMockHarnesses()); err != nil {
+		t.Fatalf("InitMachine failed: %v", err)
+	}
+
+	globalDir := filepath.Join(tmpDir, GlobalDir)
+
+	// Verify settings.yaml was created
+	settingsPath := filepath.Join(globalDir, "settings.yaml")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		t.Error("expected settings.yaml to exist in global directory")
+	}
+
+	// Verify default agnostic template was created
+	defaultTplDir := filepath.Join(globalDir, "templates", "default")
+	expectedFiles := []string{"scion-agent.yaml", "agents.md", "system-prompt.md"}
+	for _, f := range expectedFiles {
+		path := filepath.Join(defaultTplDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected default template file %s to exist at %s", f, path)
+		}
+	}
+
+	// Verify per-harness template directories were NOT created
+	for _, name := range []string{"gemini", "claude", "opencode", "codex"} {
+		perHarnessTplDir := filepath.Join(globalDir, "templates", name)
+		if _, err := os.Stat(perHarnessTplDir); !os.IsNotExist(err) {
+			t.Errorf("expected per-harness template dir %s to NOT exist", perHarnessTplDir)
+		}
+	}
+
+	// Verify agents directory was created
+	agentsDir := filepath.Join(globalDir, "agents")
+	if _, err := os.Stat(agentsDir); os.IsNotExist(err) {
+		t.Error("expected agents directory to exist in global directory")
+	}
+}
+
+func TestInitGlobal_IsAliasForInitMachine(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// InitGlobal should work the same as InitMachine
+	if err := InitGlobal(GetMockHarnesses()); err != nil {
+		t.Fatalf("InitGlobal failed: %v", err)
+	}
+
+	globalDir := filepath.Join(tmpDir, GlobalDir)
+
+	// Verify the same structure as InitMachine
+	settingsPath := filepath.Join(globalDir, "settings.yaml")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		t.Error("expected settings.yaml to exist in global directory")
+	}
+
+	defaultTplDir := filepath.Join(globalDir, "templates", "default")
+	if _, err := os.Stat(defaultTplDir); os.IsNotExist(err) {
+		t.Error("expected default template directory to exist")
+	}
+}
