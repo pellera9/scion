@@ -97,7 +97,7 @@ export async function renderPage(ctx: RenderContext): Promise<string> {
       content: componentHtml,
       initialData,
       scripts: ['/assets/main.js'],
-      styles: ['/assets/main.css'],
+      styles: [],
     });
   }
 
@@ -114,7 +114,7 @@ export async function renderPage(ctx: RenderContext): Promise<string> {
       content: componentHtml,
       initialData,
       scripts: ['/assets/main.js'],
-      styles: ['/assets/main.css'],
+      styles: [],
     });
   }
 
@@ -133,7 +133,7 @@ export async function renderPage(ctx: RenderContext): Promise<string> {
       content: componentHtml,
       initialData,
       scripts: ['/assets/main.js'],
-      styles: ['/assets/main.css'],
+      styles: [],
     });
   }
 

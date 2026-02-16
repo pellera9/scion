@@ -25,6 +25,7 @@ import Router from '@koa/router';
 import cors from '@koa/cors';
 import bodyParser from 'koa-bodyparser';
 import serve from 'koa-static';
+import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -88,9 +89,11 @@ export function createApp(config: AppConfig): Koa {
   app.use(createAuthMiddleware(config));
 
   // Static asset serving from public/ directory
-  // Path is relative to compiled location: dist/server/server/app.js
-  // So we need to go up 3 levels to reach the project root
-  const publicDir = resolve(__dirname, '../../../public');
+  // In dev mode (tsx), __dirname is src/server/ (2 levels from web root)
+  // In compiled mode, __dirname is dist/server/server/ (3 levels from web root)
+  const publicDir = existsSync(resolve(__dirname, '../../public'))
+    ? resolve(__dirname, '../../public')
+    : resolve(__dirname, '../../../public');
   app.use(
     serve(publicDir, {
       maxage: config.production ? 86400000 : 0, // 24h in prod, no cache in dev

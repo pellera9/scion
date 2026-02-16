@@ -13,7 +13,7 @@
     "dev:full": "npm run build:client:dev && npm run dev",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
-    "build:client": "vite build",
+    "build:client": "vite build && npm run copy:client",
     "build:client:dev": "vite build --mode development && npm run copy:client",
     "copy:client": "mkdir -p public/assets && cp -r dist/client/assets/* public/assets/",
     "start": "node dist/server/server/index.js",
