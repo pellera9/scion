@@ -203,9 +203,6 @@ func runInit(args []string) int {
 			log.Debug("Could not look up user for UID %d: %v", targetUID, err)
 		}
 	}
-	// Register cleanup handler with the resolved agent home directory
-	lifecycleManager.RegisterHandler(hooks.EventSessionEnd, handlers.NewCleanupHandler(agentHome).Handle)
-
 	servicesPath := filepath.Join(agentHome, ".scion", "scion-services.yaml")
 	log.Debug("Looking for services config at: %s", servicesPath)
 	if data, err := os.ReadFile(servicesPath); err == nil {
