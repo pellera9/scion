@@ -112,7 +112,6 @@ runtimes:
     host: ""
   container:
     type: container
-    tmux: true
 harness_configs:
   gemini:
     harness: gemini
@@ -125,7 +124,6 @@ harness_configs:
 profiles:
   local:
     runtime: container
-    tmux: true
   remote:
     runtime: kubernetes
 `)
@@ -215,7 +213,8 @@ func TestValidateSettings_MissingRequiredProfileRuntime(t *testing.T) {
 schema_version: "1"
 profiles:
   test:
-    tmux: true
+    env:
+      FOO: bar
 `)
 	errors, err := ValidateSettings(data, "1")
 	require.NoError(t, err)
@@ -261,6 +260,7 @@ server:
     enabled: true
     port: 9800
     broker_id: "test-broker-uuid"
+    auto_provide: true
   database:
     driver: sqlite
   auth:
@@ -328,7 +328,6 @@ profiles:
     runtime: docker
     default_template: gemini
     default_harness_config: gemini
-    tmux: false
     env:
       ENV: staging
     resources:
