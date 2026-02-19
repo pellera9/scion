@@ -257,6 +257,17 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
+	// Inject telemetry config as env vars for sciontool.
+	// Only set vars not already present (respecting explicit overrides).
+	if finalScionCfg != nil && finalScionCfg.Telemetry != nil {
+		telemetryEnv := config.TelemetryConfigToEnv(finalScionCfg.Telemetry)
+		for k, v := range telemetryEnv {
+			if _, exists := opts.Env[k]; !exists {
+				opts.Env[k] = v
+			}
+		}
+	}
+
 	agentEnv, envWarnings := buildAgentEnv(finalScionCfg, opts.Env)
 	warnings = append(warnings, envWarnings...)
 

@@ -426,6 +426,9 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 					AuthSelectedType: hConfig.AuthSelectedType,
 				}
 			}
+			if settings.Telemetry != nil {
+				settingsCfg.Telemetry = config.ConvertV1TelemetryToAPI(settings.Telemetry)
+			}
 			// Template has highest priority, so it should override settings.
 			// We construct a config with ONLY the settings env, then merge finalScionCfg over it.
 			finalScionCfg = config.MergeScionConfig(settingsCfg, finalScionCfg)

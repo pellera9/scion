@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/runtime"
 )
 
@@ -573,5 +574,117 @@ func TestStartReturnsRunningStatus(t *testing.T) {
 
 	if result.Status != "running" {
 		t.Errorf("expected Status = %q, got %q", "running", result.Status)
+	}
+}
+
+func TestBuildAgentEnv_TelemetryInjection(t *testing.T) {
+	// Simulate the telemetry injection that Start() performs before buildAgentEnv.
+	enabled := true
+	cloudEnabled := true
+	insecure := false
+
+	scionCfg := &api.ScionConfig{
+		Telemetry: &api.TelemetryConfig{
+			Enabled: &enabled,
+			Cloud: &api.TelemetryCloudConfig{
+				Enabled:  &cloudEnabled,
+				Endpoint: "otel.example.com:4317",
+				Protocol: "grpc",
+				TLS: &api.TelemetryTLS{
+					InsecureSkipVerify: &insecure,
+				},
+			},
+		},
+	}
+
+	opts := make(map[string]string)
+
+	// Replicate the injection logic from Start()
+	if scionCfg.Telemetry != nil {
+		telemetryEnv := config.TelemetryConfigToEnv(scionCfg.Telemetry)
+		for k, v := range telemetryEnv {
+			if _, exists := opts[k]; !exists {
+				opts[k] = v
+			}
+		}
+	}
+
+	env, _ := buildAgentEnv(scionCfg, opts)
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	expected := map[string]string{
+		"SCION_TELEMETRY_ENABLED":       "true",
+		"SCION_TELEMETRY_CLOUD_ENABLED": "true",
+		"SCION_OTEL_ENDPOINT":           "otel.example.com:4317",
+		"SCION_OTEL_PROTOCOL":           "grpc",
+		"SCION_OTEL_INSECURE":           "false",
+	}
+
+	for k, want := range expected {
+		got, ok := envMap[k]
+		if !ok {
+			t.Errorf("missing env var %s", k)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+}
+
+func TestBuildAgentEnv_TelemetryNoOverrideExplicit(t *testing.T) {
+	// Explicit opts.Env values must not be overwritten by telemetry config.
+	enabled := true
+
+	scionCfg := &api.ScionConfig{
+		Telemetry: &api.TelemetryConfig{
+			Enabled: &enabled,
+			Cloud: &api.TelemetryCloudConfig{
+				Endpoint: "from-config.example.com:4317",
+			},
+		},
+	}
+
+	// Pre-set an explicit override in opts.Env (e.g. from Hub/broker)
+	opts := map[string]string{
+		"SCION_OTEL_ENDPOINT": "from-broker.example.com:4317",
+	}
+
+	// Replicate the injection logic from Start()
+	if scionCfg.Telemetry != nil {
+		telemetryEnv := config.TelemetryConfigToEnv(scionCfg.Telemetry)
+		for k, v := range telemetryEnv {
+			if _, exists := opts[k]; !exists {
+				opts[k] = v
+			}
+		}
+	}
+
+	env, _ := buildAgentEnv(scionCfg, opts)
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	// The broker's explicit value should win
+	if got := envMap["SCION_OTEL_ENDPOINT"]; got != "from-broker.example.com:4317" {
+		t.Errorf("SCION_OTEL_ENDPOINT = %q, want %q (explicit override should win)",
+			got, "from-broker.example.com:4317")
+	}
+
+	// But the telemetry-derived enabled var should still be present
+	if got := envMap["SCION_TELEMETRY_ENABLED"]; got != "true" {
+		t.Errorf("SCION_TELEMETRY_ENABLED = %q, want %q", got, "true")
 	}
 }
