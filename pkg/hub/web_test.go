@@ -1066,10 +1066,11 @@ func TestSSEHandler_EventDelivery(t *testing.T) {
 	require.NoError(t, err)
 	frame := string(buf[:n])
 
-	// Verify SSE frame format
+	// Verify SSE frame format: event type is "update", subject is wrapped in data
 	assert.Contains(t, frame, "id: 1\n")
-	assert.Contains(t, frame, "event: grove.test123.agent.status\n")
+	assert.Contains(t, frame, "event: update\n")
 	assert.Contains(t, frame, "data: ")
+	assert.Contains(t, frame, `"subject":"grove.test123.agent.status"`)
 	assert.Contains(t, frame, `"agentId":"agent-1"`)
 	assert.Contains(t, frame, `"status":"running"`)
 }

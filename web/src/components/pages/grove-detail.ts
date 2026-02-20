@@ -358,23 +358,21 @@ export class ScionPageGroveDetail extends LitElement {
 
   private onAgentsUpdated(): void {
     const updatedAgents = stateManager.getAgents();
-    if (updatedAgents.length > 0) {
-      // Merge SSE agent deltas into local agent list
-      const agentMap = new Map(this.agents.map((a) => [a.id, a]));
-      for (const agent of updatedAgents) {
-        if (agent.groveId === this.groveId || agentMap.has(agent.id)) {
-          agentMap.set(agent.id, { ...agentMap.get(agent.id), ...agent } as Agent);
-        }
+    // Merge SSE agent deltas into local agent list
+    const agentMap = new Map(this.agents.map((a) => [a.id, a]));
+    for (const agent of updatedAgents) {
+      if (agent.groveId === this.groveId || agentMap.has(agent.id)) {
+        agentMap.set(agent.id, { ...agentMap.get(agent.id), ...agent } as Agent);
       }
-      // Remove agents that were deleted (present locally but not in state)
-      const stateAgentIds = new Set(updatedAgents.map((a) => a.id));
-      for (const id of agentMap.keys()) {
-        if (!stateAgentIds.has(id) && stateManager.getAgent(id) === undefined) {
-          agentMap.delete(id);
-        }
-      }
-      this.agents = Array.from(agentMap.values());
     }
+    // Remove agents that were deleted (present locally but not in state)
+    const stateAgentIds = new Set(updatedAgents.map((a) => a.id));
+    for (const id of agentMap.keys()) {
+      if (!stateAgentIds.has(id) && stateManager.getAgent(id) === undefined) {
+        agentMap.delete(id);
+      }
+    }
+    this.agents = Array.from(agentMap.values());
   }
 
   private onGrovesUpdated(): void {

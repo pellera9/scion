@@ -452,11 +452,18 @@ func (ws *WebServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // staticHandler returns an http.Handler that serves static assets.
+// The handler checks ws.assets/ws.assetsDisk at serve time (not registration
+// time) so that tests can override these fields after construction.
 func (ws *WebServer) staticHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws.serveStaticAsset(w, r)
+	})
+}
+
+func (ws *WebServer) serveStaticAsset(w http.ResponseWriter, r *http.Request) {
 	if ws.assetsDisk == "" && ws.assets == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "no assets available", http.StatusNotFound)
-		})
+		http.Error(w, "no assets available", http.StatusNotFound)
+		return
 	}
 
 	var fileServer http.Handler
@@ -466,17 +473,15 @@ func (ws *WebServer) staticHandler() http.Handler {
 		fileServer = http.FileServer(http.FS(ws.assets))
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set cache headers based on whether the filename contains a hash.
-		// Vite hashed assets (e.g., chunk-abc123.js) get long-lived caching.
-		// Non-hashed entry points (e.g., main.js) get revalidation.
-		if isHashedAsset(r.URL.Path) {
-			w.Header().Set("Cache-Control", "public, max-age=86400")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		fileServer.ServeHTTP(w, r)
-	})
+	// Set cache headers based on whether the filename contains a hash.
+	// Vite hashed assets (e.g., chunk-abc123.js) get long-lived caching.
+	// Non-hashed entry points (e.g., main.js) get revalidation.
+	if isHashedAsset(r.URL.Path) {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	fileServer.ServeHTTP(w, r)
 }
 
 // isHashedAsset checks if a path looks like it contains a content hash.
@@ -573,7 +578,12 @@ func (ws *WebServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			eventID++
-			fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n",
+			// Wrap subject + data into the shape the client expects:
+			//   event: update
+			//   data: {"subject":"grove.xxx.agent.created","data":{...}}
+			// The client's SSEClient listens for event type "update" and
+			// the StateManager parses the subject to route the event.
+			fmt.Fprintf(w, "id: %d\nevent: update\ndata: {\"subject\":%q,\"data\":%s}\n\n",
 				eventID, evt.Subject, evt.Data)
 			flusher.Flush()
 		case <-heartbeat.C:
