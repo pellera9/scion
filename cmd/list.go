@@ -34,8 +34,9 @@ import (
 )
 
 var (
-	listAll    bool
-	sortByTime bool
+	listAll     bool
+	listDeleted bool
+	sortByTime  bool
 )
 
 // listCmd represents the list command
@@ -103,7 +104,9 @@ func listAgentsViaHub(hubCtx *HubContext) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	opts := &hubclient.ListAgentsOptions{}
+	opts := &hubclient.ListAgentsOptions{
+		IncludeDeleted: listDeleted,
+	}
 	agentSvc := hubCtx.Client.Agents()
 
 	if !listAll {
@@ -209,6 +212,7 @@ func hubAgentToAgentInfo(a hubclient.Agent) api.AgentInfo {
 		Created:           a.Created,
 		Updated:           a.Updated,
 		LastSeen:          a.LastSeen,
+		DeletedAt:         a.DeletedAt,
 		CreatedBy:         a.CreatedBy,
 		OwnerID:           a.OwnerID,
 		Visibility:        a.Visibility,
@@ -474,5 +478,6 @@ func updateAgentNameCache(agents []hubclient.Agent) {
 func init() {
 	rootCmd.AddCommand(listCmd)
 	listCmd.Flags().BoolVarP(&listAll, "all", "a", false, "List all agents across all groves")
+	listCmd.Flags().BoolVar(&listDeleted, "deleted", false, "Include soft-deleted agents in listing")
 	listCmd.Flags().BoolVarP(&sortByTime, "time", "t", false, "Sort by last event, most recent first")
 }

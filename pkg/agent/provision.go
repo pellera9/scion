@@ -625,6 +625,38 @@ func UpdateAgentConfig(agentName string, grovePath string, status string, runtim
 	return nil
 }
 
+// UpdateAgentDeletedAt writes the deletedAt timestamp to agent-info.json.
+func UpdateAgentDeletedAt(agentName string, grovePath string, deletedAt time.Time) error {
+	projectDir, err := config.GetResolvedProjectDir(grovePath)
+	if err != nil {
+		return err
+	}
+	agentInfoPath := filepath.Join(projectDir, "agents", agentName, "home", "agent-info.json")
+
+	if _, err := os.Stat(agentInfoPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := os.ReadFile(agentInfoPath)
+	if err != nil {
+		return err
+	}
+
+	var info api.AgentInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return err
+	}
+
+	info.DeletedAt = deletedAt
+
+	newData, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(agentInfoPath, newData, 0644)
+}
+
 func GetAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, string, *api.ScionConfig, error) {
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {

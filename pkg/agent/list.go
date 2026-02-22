@@ -17,6 +17,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -189,6 +190,12 @@ func (m *AgentManager) List(ctx context.Context, filter map[string]string) ([]ap
 			// Use agent-info.json mtime as LastSeen for local agents
 			if fi, err := os.Stat(agentInfoJSON); err == nil {
 				agentEntry.LastSeen = fi.ModTime()
+			}
+
+			// Warn about stale soft-deleted agents
+			if info.Status == "deleted" && !info.DeletedAt.IsZero() {
+				agentEntry.Warnings = append(agentEntry.Warnings,
+					fmt.Sprintf("soft-deleted at %s", info.DeletedAt.Format("2006-01-02 15:04")))
 			}
 
 			agents = append(agents, agentEntry)

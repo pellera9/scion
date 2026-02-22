@@ -636,15 +636,31 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 
 	deleteFiles := query.Get("deleteFiles") == "true"
 	removeBranch := query.Get("removeBranch") == "true"
+	softDelete := query.Get("softDelete") == "true"
 
 	// Get the agent's grove path before stopping (needed for file deletion)
 	var grovePath string
 	agents, err := s.manager.List(ctx, map[string]string{"scion.agent": "true"})
 	if err == nil {
-		for _, agent := range agents {
-			if agent.Name == id || agent.ContainerID == id || agent.Slug == id {
-				grovePath = agent.GrovePath
+		for _, a := range agents {
+			if a.Name == id || a.ContainerID == id || a.Slug == id {
+				grovePath = a.GrovePath
 				break
+			}
+		}
+	}
+
+	// If this is a soft-delete, mark agent-info.json with deleted status before cleanup
+	if softDelete && grovePath != "" {
+		deletedAtStr := query.Get("deletedAt")
+		if err := agent.UpdateAgentConfig(id, grovePath, "deleted", "", ""); err != nil {
+			slog.Warn("Failed to mark agent as deleted in agent-info.json", "agent", id, "error", err)
+		}
+		if deletedAtStr != "" {
+			if deletedAt, err := time.Parse(time.RFC3339, deletedAtStr); err == nil {
+				if err := agent.UpdateAgentDeletedAt(id, grovePath, deletedAt); err != nil {
+					slog.Warn("Failed to write deletedAt to agent-info.json", "agent", id, "error", err)
+				}
 			}
 		}
 	}
