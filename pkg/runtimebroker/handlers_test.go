@@ -997,6 +997,108 @@ func TestCreateAgentWithoutGitClone(t *testing.T) {
 	}
 }
 
+func TestResolveManagerForOpts_NoProfile(t *testing.T) {
+	srv, _ := newTestServerWithProvisionCapture()
+
+	opts := api.StartOptions{Name: "test-agent"}
+	mgr := srv.resolveManagerForOpts(opts)
+
+	// With no profile, should return the default manager
+	if mgr != srv.manager {
+		t.Error("expected default manager when no profile is set")
+	}
+}
+
+func TestResolveManagerForOpts_ProfileNotInSettings(t *testing.T) {
+	srv, _ := newTestServerWithProvisionCapture()
+
+	opts := api.StartOptions{
+		Name:    "test-agent",
+		Profile: "nonexistent-profile",
+	}
+	mgr := srv.resolveManagerForOpts(opts)
+
+	// Profile not found in settings should return the default manager
+	if mgr != srv.manager {
+		t.Error("expected default manager when profile not found in settings")
+	}
+}
+
+func TestResolveManagerForOpts_ProfileWithDifferentRuntime(t *testing.T) {
+	// Create a temp grove directory with settings that specify a different runtime
+	tmpDir := t.TempDir()
+	grovePath := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(grovePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write settings.yaml with a profile that specifies runtime "container"
+	// (which differs from the mock runtime's "mock" name)
+	settingsYAML := `version: 1
+profiles:
+  apple:
+    runtime: container
+runtimes:
+  container:
+    type: container
+`
+	if err := os.WriteFile(filepath.Join(grovePath, "settings.yaml"), []byte(settingsYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, _ := newTestServerWithProvisionCapture()
+
+	opts := api.StartOptions{
+		Name:      "test-agent",
+		Profile:   "apple",
+		GrovePath: grovePath,
+	}
+	mgr := srv.resolveManagerForOpts(opts)
+
+	// Profile specifies "container" runtime which differs from mock's "mock",
+	// so we should get a different manager
+	if mgr == srv.manager {
+		t.Error("expected a different manager when profile specifies a different runtime")
+	}
+}
+
+func TestResolveManagerForOpts_ProfileWithSameRuntime(t *testing.T) {
+	// Create a temp grove directory with settings that specify the same runtime as the mock
+	tmpDir := t.TempDir()
+	grovePath := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(grovePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write settings with profile whose runtime matches the mock runtime ("mock")
+	settingsYAML := `version: 1
+profiles:
+  default:
+    runtime: mock
+runtimes:
+  mock:
+    type: mock
+`
+	if err := os.WriteFile(filepath.Join(grovePath, "settings.yaml"), []byte(settingsYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, _ := newTestServerWithProvisionCapture()
+
+	opts := api.StartOptions{
+		Name:      "test-agent",
+		Profile:   "default",
+		GrovePath: grovePath,
+	}
+	mgr := srv.resolveManagerForOpts(opts)
+
+	// Profile specifies "mock" runtime which matches the broker's runtime,
+	// so we should get the same manager
+	if mgr != srv.manager {
+		t.Error("expected default manager when profile resolves to same runtime")
+	}
+}
+
 func TestCreateAgentWithProfile(t *testing.T) {
 	srv, mgr := newTestServerWithProvisionCapture()
 

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/gcp"
@@ -491,10 +492,12 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		opts.GrovePath = "" // Prevent git worktree logic in ProvisionAgent
 	}
 
+	mgr := s.resolveManagerForOpts(opts)
+
 	// Branch based on provision-only flag
 	if req.ProvisionOnly {
 		// Provision only: set up dirs, worktree, templates without starting the container
-		cfg, err := s.manager.Provision(ctx, opts)
+		cfg, err := mgr.Provision(ctx, opts)
 		if err != nil {
 			RuntimeError(w, "Failed to provision agent: "+err.Error())
 			return
@@ -522,7 +525,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Full start: provision and launch the container
-	agentInfo, err := s.manager.Start(ctx, opts)
+	agentInfo, err := mgr.Start(ctx, opts)
 	if err != nil {
 		RuntimeError(w, "Failed to create agent: "+err.Error())
 		return
@@ -713,7 +716,13 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 		}
 	}
 
-	agentInfo, err := s.manager.Start(ctx, opts)
+	// Resolve saved profile for runtime selection
+	if opts.GrovePath != "" {
+		opts.Profile = agent.GetSavedProfile(id, opts.GrovePath)
+	}
+
+	mgr := s.resolveManagerForOpts(opts)
+	agentInfo, err := mgr.Start(ctx, opts)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			NotFound(w, "Agent")
@@ -1178,7 +1187,8 @@ func (s *Server) finalizeEnv(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	// Start the agent
-	agentInfo, err := s.manager.Start(ctx, opts)
+	mgr := s.resolveManagerForOpts(opts)
+	agentInfo, err := mgr.Start(ctx, opts)
 	if err != nil {
 		RuntimeError(w, "Failed to create agent: "+err.Error())
 		return
@@ -1190,6 +1200,47 @@ func (s *Server) finalizeEnv(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// resolveManagerForOpts returns the appropriate agent.Manager for the given
+// start options. If opts.Profile resolves to a different runtime than the
+// broker's default, a temporary manager is created with the profile-specific
+// runtime. Otherwise the broker's shared manager is returned.
+func (s *Server) resolveManagerForOpts(opts api.StartOptions) agent.Manager {
+	if opts.Profile == "" {
+		return s.manager
+	}
+
+	// Load settings to check if the profile explicitly specifies a different runtime.
+	// If no settings exist or the profile isn't defined, stick with the default manager.
+	projectDir, _ := config.GetResolvedProjectDir(opts.GrovePath)
+	vs, _, _ := config.LoadEffectiveSettings(projectDir)
+	if vs == nil {
+		return s.manager
+	}
+
+	_, runtimeType, err := vs.ResolveRuntime(opts.Profile)
+	if err != nil {
+		// Profile or its runtime not found in settings; use default
+		return s.manager
+	}
+
+	if runtimeType == s.runtime.Name() {
+		return s.manager
+	}
+
+	// Profile specifies a different runtime - resolve and create a temporary manager
+	resolved := agent.ResolveRuntime(opts.GrovePath, opts.Name, opts.Profile)
+
+	if s.config.Debug {
+		slog.Debug("Profile resolved to different runtime",
+			"profile", opts.Profile,
+			"defaultRuntime", s.runtime.Name(),
+			"resolvedRuntime", resolved.Name(),
+		)
+	}
+
+	return agent.NewManager(resolved)
 }
 
 // Helper functions
