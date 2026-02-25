@@ -534,6 +534,42 @@ func TestIsEmailAuthorized(t *testing.T) {
 			adminEmails:       []string{"admin@anywhere.com"},
 			expected:          true,
 		},
+		{
+			name:              "wildcard matches single subdomain",
+			email:             "user@foo.altostrat.com",
+			authorizedDomains: []string{"*.altostrat.com"},
+			expected:          true,
+		},
+		{
+			name:              "wildcard matches nested subdomain",
+			email:             "user@foo.bar.altostrat.com",
+			authorizedDomains: []string{"*.altostrat.com"},
+			expected:          true,
+		},
+		{
+			name:              "wildcard does not match bare domain",
+			email:             "user@altostrat.com",
+			authorizedDomains: []string{"*.altostrat.com"},
+			expected:          false,
+		},
+		{
+			name:              "wildcard is case insensitive",
+			email:             "user@FOO.ALTOSTRAT.COM",
+			authorizedDomains: []string{"*.altostrat.com"},
+			expected:          true,
+		},
+		{
+			name:              "wildcard does not match unrelated domain",
+			email:             "user@notaltostrat.com",
+			authorizedDomains: []string{"*.altostrat.com"},
+			expected:          false,
+		},
+		{
+			name:              "wildcard alongside exact domain",
+			email:             "user@sub.example.com",
+			authorizedDomains: []string{"company.org", "*.example.com"},
+			expected:          true,
+		},
 	}
 
 	for _, tc := range tests {

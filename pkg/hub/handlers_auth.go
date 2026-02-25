@@ -1092,8 +1092,17 @@ func isEmailAuthorized(email string, authorizedDomains []string, adminEmails []s
 
 	// Check if domain is in the authorized list
 	for _, authorized := range authorizedDomains {
-		if strings.ToLower(authorized) == domain {
+		authorizedLower := strings.ToLower(authorized)
+		if authorizedLower == domain {
 			return true
+		}
+		// Support wildcard subdomains: "*.example.com" matches "foo.example.com",
+		// "bar.baz.example.com", etc.
+		if strings.HasPrefix(authorizedLower, "*.") {
+			suffix := authorizedLower[1:] // e.g. ".example.com"
+			if strings.HasSuffix(domain, suffix) {
+				return true
+			}
 		}
 	}
 
