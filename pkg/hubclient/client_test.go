@@ -212,6 +212,7 @@ func TestAgentsCreate(t *testing.T) {
 }
 
 func TestAgentsDelete(t *testing.T) {
+	// DeleteFiles=true (server default) should NOT send deleteFiles param
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
@@ -220,9 +221,9 @@ func TestAgentsDelete(t *testing.T) {
 			t.Errorf("expected path /api/v1/agents/agent-to-delete, got %s", r.URL.Path)
 		}
 
-		// Check query params
-		if r.URL.Query().Get("deleteFiles") != "true" {
-			t.Errorf("expected deleteFiles=true")
+		// deleteFiles defaults to true on server, so client should not send it
+		if r.URL.Query().Get("deleteFiles") != "" {
+			t.Errorf("expected no deleteFiles param (server defaults to true), got %q", r.URL.Query().Get("deleteFiles"))
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -232,6 +233,36 @@ func TestAgentsDelete(t *testing.T) {
 	client, _ := New(server.URL)
 	err := client.Agents().Delete(context.Background(), "agent-to-delete", &DeleteAgentOptions{
 		DeleteFiles: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAgentsDelete_PreserveFiles(t *testing.T) {
+	// DeleteFiles=false should explicitly send deleteFiles=false to override server default
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+
+		// Client should explicitly send deleteFiles=false
+		if r.URL.Query().Get("deleteFiles") != "false" {
+			t.Errorf("expected deleteFiles=false, got %q", r.URL.Query().Get("deleteFiles"))
+		}
+		// removeBranch should also be false
+		if r.URL.Query().Get("removeBranch") != "false" {
+			t.Errorf("expected removeBranch=false, got %q", r.URL.Query().Get("removeBranch"))
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	err := client.Agents().Delete(context.Background(), "agent-to-delete", &DeleteAgentOptions{
+		DeleteFiles:  false,
+		RemoveBranch: false,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

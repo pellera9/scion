@@ -1111,8 +1111,10 @@ func (s *Server) performAgentDelete(w http.ResponseWriter, r *http.Request, agen
 
 	query := r.URL.Query()
 
-	deleteFiles := query.Get("deleteFiles") == "true"
-	removeBranch := query.Get("removeBranch") == "true"
+	// Default deleteFiles and removeBranch to true for full cleanup.
+	// Callers can explicitly set them to "false" to preserve files/branches.
+	deleteFiles := query.Get("deleteFiles") != "false"
+	removeBranch := query.Get("removeBranch") != "false"
 	force := query.Get("force") == "true"
 
 	// Idempotency: already-deleted agent returns 204
@@ -1140,10 +1142,17 @@ func (s *Server) performAgentDelete(w http.ResponseWriter, r *http.Request, agen
 	// If a dispatcher is available, dispatch the deletion to the runtime broker
 	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {
 		if err := dispatcher.DispatchAgentDelete(ctx, agent, deleteFiles, removeBranch, softDelete, now); err != nil {
-			// Log but continue - the agent record should still be deleted/updated from hub
-			// The runtime broker deletion is best-effort
-			// (agent may already be stopped/deleted on the broker)
-			slog.Warn("Failed to dispatch agent delete to broker", "agentID", agent.ID, "error", err)
+			if force {
+				// Force mode: log warning and continue with hub record deletion
+				slog.Warn("Failed to dispatch agent delete to broker (force=true, continuing)",
+					"agentID", agent.ID, "error", err)
+			} else {
+				// Normal mode: fail the operation to avoid orphaning the agent on the broker
+				slog.Error("Failed to dispatch agent delete to broker", "agentID", agent.ID, "error", err)
+				writeError(w, http.StatusBadGateway, ErrCodeRuntimeError,
+					"Failed to delete agent on runtime broker: "+err.Error(), nil)
+				return
+			}
 		}
 	}
 

@@ -295,11 +295,13 @@ func (s *agentService) Delete(ctx context.Context, agentID string, opts *DeleteA
 	path := s.agentPath(agentID)
 	if opts != nil {
 		query := url.Values{}
-		if opts.DeleteFiles {
-			query.Set("deleteFiles", "true")
+		// Server defaults deleteFiles/removeBranch to true, so only send
+		// the parameter when the caller explicitly wants to preserve them.
+		if !opts.DeleteFiles {
+			query.Set("deleteFiles", "false")
 		}
-		if opts.RemoveBranch {
-			query.Set("removeBranch", "true")
+		if !opts.RemoveBranch {
+			query.Set("removeBranch", "false")
 		}
 		if opts.Force {
 			query.Set("force", "true")

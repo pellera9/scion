@@ -264,6 +264,138 @@ func TestDeleteAgent_NoBroker(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
+// deleteDispatcher tracks whether DispatchAgentDelete was called and can simulate errors.
+type deleteDispatcher struct {
+	createAgentDispatcher
+	deleteErr    error
+	deleteCalls  int
+	lastDeleteFiles  bool
+	lastRemoveBranch bool
+}
+
+func (d *deleteDispatcher) DispatchAgentDelete(_ context.Context, _ *store.Agent, deleteFiles, removeBranch, _ bool, _ time.Time) error {
+	d.deleteCalls++
+	d.lastDeleteFiles = deleteFiles
+	d.lastRemoveBranch = removeBranch
+	return d.deleteErr
+}
+
+// setupOnlineBrokerAgent creates a grove, an online broker, and an agent assigned to that broker.
+func setupOnlineBrokerAgent(t *testing.T, s store.Store, suffix string) (*store.Grove, *store.RuntimeBroker, *store.Agent) {
+	t.Helper()
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   fmt.Sprintf("grove-online-%s", suffix),
+		Name: fmt.Sprintf("Online Grove %s", suffix),
+		Slug: fmt.Sprintf("online-grove-%s", suffix),
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	broker := &store.RuntimeBroker{
+		ID:       fmt.Sprintf("broker-online-%s", suffix),
+		Name:     fmt.Sprintf("Online Broker %s", suffix),
+		Slug:     fmt.Sprintf("online-broker-%s", suffix),
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://localhost:9800",
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+
+	agent := &store.Agent{
+		ID:              fmt.Sprintf("agent-online-%s", suffix),
+		Slug:            fmt.Sprintf("agent-online-%s-slug", suffix),
+		Name:            fmt.Sprintf("Agent Online %s", suffix),
+		GroveID:         grove.ID,
+		RuntimeBrokerID: broker.ID,
+		Status:          store.AgentStatusRunning,
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent))
+
+	return grove, broker, agent
+}
+
+func TestDeleteAgent_DispatchesToBroker(t *testing.T) {
+	srv, s := testServer(t)
+
+	disp := &deleteDispatcher{}
+	srv.SetDispatcher(disp)
+
+	_, _, agent := setupOnlineBrokerAgent(t, s, "dispatch")
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify dispatch was called with correct defaults
+	assert.Equal(t, 1, disp.deleteCalls, "DispatchAgentDelete should be called once")
+	assert.True(t, disp.lastDeleteFiles, "deleteFiles should default to true")
+	assert.True(t, disp.lastRemoveBranch, "removeBranch should default to true")
+
+	// Verify agent was deleted from hub
+	ctx := context.Background()
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestDeleteAgent_DispatchFailure_ReturnsError(t *testing.T) {
+	srv, s := testServer(t)
+
+	disp := &deleteDispatcher{
+		deleteErr: fmt.Errorf("broker connection refused"),
+	}
+	srv.SetDispatcher(disp)
+
+	_, _, agent := setupOnlineBrokerAgent(t, s, "fail")
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID, nil)
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+
+	// Verify error response
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, ErrCodeRuntimeError, errResp.Error.Code)
+
+	// Verify agent was NOT deleted from hub (dispatch failed)
+	ctx := context.Background()
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.NoError(t, err, "agent should still exist when broker dispatch fails")
+}
+
+func TestDeleteAgent_DispatchFailure_ForceDeleteSucceeds(t *testing.T) {
+	srv, s := testServer(t)
+
+	disp := &deleteDispatcher{
+		deleteErr: fmt.Errorf("broker connection refused"),
+	}
+	srv.SetDispatcher(disp)
+
+	_, _, agent := setupOnlineBrokerAgent(t, s, "force")
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID+"?force=true", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify agent was deleted from hub despite dispatch failure
+	ctx := context.Background()
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestDeleteAgent_PreserveFiles(t *testing.T) {
+	srv, s := testServer(t)
+
+	disp := &deleteDispatcher{}
+	srv.SetDispatcher(disp)
+
+	_, _, agent := setupOnlineBrokerAgent(t, s, "preserve")
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID+"?deleteFiles=false&removeBranch=false", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify dispatch was called with explicit false values
+	assert.Equal(t, 1, disp.deleteCalls)
+	assert.False(t, disp.lastDeleteFiles, "deleteFiles should be false when explicitly set")
+	assert.False(t, disp.lastRemoveBranch, "removeBranch should be false when explicitly set")
+}
+
 func TestAgentLifecycle_BrokerOffline(t *testing.T) {
 	srv, s := testServer(t)
 
