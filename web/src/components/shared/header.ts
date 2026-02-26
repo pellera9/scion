@@ -21,7 +21,7 @@
  */
 
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 
 import type { User } from '../../shared/types.js';
 
@@ -50,6 +50,9 @@ export class ScionHeader extends LitElement {
    */
   @property({ type: Boolean })
   showMobileMenu = false;
+
+  @state()
+  private isDark = false;
 
   static override styles = css`
     :host {
@@ -188,6 +191,58 @@ export class ScionHeader extends LitElement {
       color: var(--scion-text, #1e293b);
       border-color: var(--scion-text-muted, #64748b);
     }
+
+    .theme-switch {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .theme-switch sl-icon {
+      font-size: 0.9rem;
+      color: var(--scion-text-muted, #64748b);
+      transition: color 0.2s ease;
+    }
+
+    .theme-switch sl-icon.active-icon {
+      color: var(--scion-primary, #3b82f6);
+    }
+
+    .toggle-track {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      background: var(--scion-border, #e2e8f0);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      border: none;
+      padding: 0;
+    }
+
+    .toggle-track:hover {
+      background: var(--scion-text-muted, #94a3b8);
+    }
+
+    .toggle-track.dark {
+      background: var(--scion-primary, #3b82f6);
+    }
+
+    .toggle-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s ease;
+      pointer-events: none;
+    }
+
+    .toggle-track.dark .toggle-knob {
+      transform: translateX(16px);
+    }
   `;
 
   override render() {
@@ -215,6 +270,17 @@ export class ScionHeader extends LitElement {
           <sl-tooltip content="Help">
             <sl-icon-button name="question-circle" label="Help"></sl-icon-button>
           </sl-tooltip>
+          <div class="theme-switch">
+            <sl-icon name="sun" class=${this.isDark ? '' : 'active-icon'}></sl-icon>
+            <button
+              class="toggle-track ${this.isDark ? 'dark' : ''}"
+              @click=${(): void => this.toggleTheme()}
+              aria-label="Toggle dark mode"
+            >
+              <span class="toggle-knob"></span>
+            </button>
+            <sl-icon name="moon" class=${this.isDark ? 'active-icon' : ''}></sl-icon>
+          </div>
         </div>
 
         <div class="user-section">${this.renderUserSection()}</div>
@@ -244,6 +310,37 @@ export class ScionHeader extends LitElement {
         </button>
       </div>
     `;
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    const saved = localStorage.getItem('scion-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    this.isDark = saved ? saved === 'dark' : prefersDark;
+  }
+
+  private toggleTheme(): void {
+    this.isDark = !this.isDark;
+    const root = document.documentElement;
+    const newTheme = this.isDark ? 'dark' : 'light';
+
+    root.setAttribute('data-theme', newTheme);
+
+    if (this.isDark) {
+      root.classList.add('sl-theme-dark');
+    } else {
+      root.classList.remove('sl-theme-dark');
+    }
+
+    localStorage.setItem('scion-theme', newTheme);
+
+    this.dispatchEvent(
+      new CustomEvent('theme-change', {
+        detail: { theme: newTheme },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   /**

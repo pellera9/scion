@@ -223,26 +223,6 @@ export class ScionNav extends LitElement {
       display: none;
     }
 
-    .nav-footer {
-      padding: 0.75rem;
-      border-top: 1px solid var(--scion-border, #e2e8f0);
-    }
-
-    .theme-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      padding: 0.5rem;
-      border-radius: 0.5rem;
-      background: var(--scion-bg-subtle, #f1f5f9);
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-
-    .theme-toggle:hover {
-      background: var(--scion-border, #e2e8f0);
-    }
   `;
 
   override render() {
@@ -281,16 +261,6 @@ export class ScionNav extends LitElement {
         )}
       </nav>
 
-      <div class="nav-footer">
-        <button
-          class="theme-toggle"
-          @click=${(): void => this.toggleTheme()}
-          title="Toggle theme"
-          aria-label="Toggle dark mode"
-        >
-          <sl-icon name="sun-moon"></sl-icon>
-        </button>
-      </div>
     `;
   }
 
@@ -318,33 +288,6 @@ export class ScionNav extends LitElement {
     );
   }
 
-  /**
-   * Toggle between light and dark theme
-   */
-  private toggleTheme(): void {
-    const html = document.documentElement;
-    const currentTheme = html.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-    html.setAttribute('data-theme', newTheme);
-
-    if (newTheme === 'dark') {
-      html.classList.add('sl-theme-dark');
-    } else {
-      html.classList.remove('sl-theme-dark');
-    }
-
-    // Persist preference
-    localStorage.setItem('scion-theme', newTheme);
-
-    this.dispatchEvent(
-      new CustomEvent('theme-change', {
-        detail: { theme: newTheme },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
 }
 
 declare global {
