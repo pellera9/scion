@@ -17,6 +17,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -167,4 +168,144 @@ func TestPopulateAgentConfig_GitGrove_NoWorkspace(t *testing.T) {
 		"Workspace should not be set for git-backed groves")
 	assert.NotNil(t, agent.AppliedConfig.GitClone,
 		"GitClone should be set for git-backed groves")
+}
+
+// TestCreateAgent_HubNativeGrove_ExplicitBroker_AutoLinks tests that creating an agent
+// in a hub-native grove with an explicitly selected broker auto-links the broker as a
+// provider, even if it wasn't previously registered as one.
+func TestCreateAgent_HubNativeGrove_ExplicitBroker_AutoLinks(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a runtime broker
+	broker := &store.RuntimeBroker{
+		ID:     "broker-hub-autolink",
+		Slug:   "hub-autolink-broker",
+		Name:   "Hub Autolink Broker",
+		Status: store.BrokerStatusOnline,
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+
+	// Create a hub-native grove (no git remote, no default broker, no providers)
+	grove := &store.Grove{
+		ID:   "grove-hub-autolink",
+		Slug: "hub-autolink",
+		Name: "Hub Autolink Grove",
+		// No GitRemote — hub-native
+		// No DefaultRuntimeBrokerID
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	// Create agent with explicit broker — this should auto-link the broker
+	body := map[string]interface{}{
+		"name":            "autolink-agent",
+		"groveId":         grove.ID,
+		"runtimeBrokerId": broker.ID,
+	}
+
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", body)
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+	var resp CreateAgentResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	assert.NotNil(t, resp.Agent)
+	assert.Equal(t, broker.ID, resp.Agent.RuntimeBrokerID,
+		"Agent should be assigned to the explicitly selected broker")
+
+	// Verify the broker was auto-linked as a provider
+	provider, err := s.GetGroveProvider(ctx, grove.ID, broker.ID)
+	require.NoError(t, err, "Broker should have been auto-linked as a provider")
+	assert.Equal(t, broker.ID, provider.BrokerID)
+	assert.Equal(t, "agent-create", provider.LinkedBy)
+
+	// Verify the broker was set as the default
+	updatedGrove, err := s.GetGrove(ctx, grove.ID)
+	require.NoError(t, err)
+	assert.Equal(t, broker.ID, updatedGrove.DefaultRuntimeBrokerID,
+		"Broker should be set as the default for the grove")
+}
+
+// TestCreateGrove_HubNative_AutoProvide tests that creating a hub-native grove
+// auto-links brokers with auto_provide enabled.
+func TestCreateGrove_HubNative_AutoProvide(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a broker with auto_provide enabled
+	broker := &store.RuntimeBroker{
+		ID:          "broker-autoprovide",
+		Slug:        "autoprovide-broker",
+		Name:        "Auto Provide Broker",
+		Status:      store.BrokerStatusOnline,
+		AutoProvide: true,
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+
+	// Create a hub-native grove via the API
+	body := CreateGroveRequest{
+		Name: "Auto Provide Grove",
+	}
+
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body)
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+	var grove store.Grove
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&grove))
+	assert.Empty(t, grove.GitRemote, "should be hub-native")
+
+	// Verify the auto-provide broker was linked
+	provider, err := s.GetGroveProvider(ctx, grove.ID, broker.ID)
+	require.NoError(t, err, "Auto-provide broker should be linked as a provider")
+	assert.Equal(t, "auto-provide", provider.LinkedBy)
+
+	// Verify the broker was set as the default
+	updatedGrove, err := s.GetGrove(ctx, grove.ID)
+	require.NoError(t, err)
+	assert.Equal(t, broker.ID, updatedGrove.DefaultRuntimeBrokerID,
+		"Auto-provide broker should be set as the default")
+
+	// Now create an agent — should work without explicit broker
+	agentBody := map[string]interface{}{
+		"name":    "autoprovide-agent",
+		"groveId": grove.ID,
+	}
+	rec = doRequest(t, srv, http.MethodPost, "/api/v1/agents", agentBody)
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+	var resp CreateAgentResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, broker.ID, resp.Agent.RuntimeBrokerID,
+		"Agent should use the auto-provided default broker")
+
+	// Cleanup hub-native grove filesystem
+	workspacePath, err := hubNativeGrovePath(grove.Slug)
+	if err == nil {
+		t.Cleanup(func() { os.RemoveAll(workspacePath) })
+	}
+}
+
+// TestCreateAgent_HubNativeGrove_NoProviders_NoBroker tests that creating an agent
+// in a hub-native grove with no providers and no explicit broker returns an appropriate error.
+func TestCreateAgent_HubNativeGrove_NoProviders_NoBroker(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a hub-native grove with no providers
+	grove := &store.Grove{
+		ID:   "grove-hub-noproviders",
+		Slug: "hub-noproviders",
+		Name: "No Providers Grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	body := map[string]interface{}{
+		"name":    "orphan-agent",
+		"groveId": grove.ID,
+	}
+
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", body)
+	// Should fail because there are no providers and no broker specified
+	assert.NotEqual(t, http.StatusCreated, rec.Code,
+		"Should fail when no providers exist and no broker is specified")
 }

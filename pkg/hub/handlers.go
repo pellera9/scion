@@ -1603,6 +1603,9 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-link brokers that have auto_provide enabled (mirrors registerGrove behavior).
+	s.autoLinkProviders(ctx, grove)
+
 	s.events.PublishGroveCreated(ctx, grove)
 
 	writeJSON(w, http.StatusCreated, grove)
@@ -1881,26 +1884,7 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		s.createGroveMembersGroupAndPolicy(ctx, grove)
 
 		// Auto-link brokers that have auto_provide enabled
-		autoProvideTrue := true
-		autoProviders, err := s.store.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{
-			AutoProvide: &autoProvideTrue,
-		}, store.ListOptions{})
-		if err == nil {
-			for _, autoBroker := range autoProviders.Items {
-				provider := &store.GroveProvider{
-					GroveID:    grove.ID,
-					BrokerID:   autoBroker.ID,
-					BrokerName: autoBroker.Name,
-					Status:     autoBroker.Status,
-					LinkedBy:   "auto-provide",
-				}
-				if addErr := s.store.AddGroveProvider(ctx, provider); addErr != nil {
-					util.Debugf("Warning: failed to auto-link broker %s to grove %s: %v", autoBroker.Name, grove.ID, addErr)
-				}
-			}
-		} else {
-			util.Debugf("Warning: failed to query auto-provide brokers: %v", err)
-		}
+		s.autoLinkProviders(ctx, grove)
 	}
 
 	// Handle broker linking - two paths:
@@ -4259,6 +4243,43 @@ func (s *Server) handleGroveSecretByKey(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// autoLinkProviders links brokers with auto_provide enabled as providers for a grove.
+// If the grove has no default runtime broker, the first auto-provided broker is set as default.
+func (s *Server) autoLinkProviders(ctx context.Context, grove *store.Grove) {
+	autoProvideTrue := true
+	autoProviders, err := s.store.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{
+		AutoProvide: &autoProvideTrue,
+	}, store.ListOptions{})
+	if err != nil {
+		slog.Warn("Failed to query auto-provide brokers", "grove", grove.ID, "error", err)
+		return
+	}
+
+	for _, autoBroker := range autoProviders.Items {
+		provider := &store.GroveProvider{
+			GroveID:    grove.ID,
+			BrokerID:   autoBroker.ID,
+			BrokerName: autoBroker.Name,
+			Status:     autoBroker.Status,
+			LinkedBy:   "auto-provide",
+		}
+		if addErr := s.store.AddGroveProvider(ctx, provider); addErr != nil {
+			slog.Warn("Failed to auto-link broker to grove",
+				"broker", autoBroker.Name, "grove", grove.ID, "error", addErr)
+			continue
+		}
+
+		// Set first auto-provided broker as default if grove has none
+		if grove.DefaultRuntimeBrokerID == "" {
+			grove.DefaultRuntimeBrokerID = autoBroker.ID
+			if updateErr := s.store.UpdateGrove(ctx, grove); updateErr != nil {
+				slog.Warn("Failed to set default runtime broker",
+					"broker", autoBroker.Name, "grove", grove.ID, "error", updateErr)
+			}
+		}
+	}
+}
+
 // ============================================================================
 // Grove Providers Endpoints
 // ============================================================================
@@ -4873,6 +4894,14 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 		return "", err
 	}
 
+	slog.Debug("Resolving runtime broker",
+		"grove", grove.ID, "groveName", grove.Name,
+		"requestedBroker", requestedBrokerID,
+		"totalProviders", len(allProviders),
+		"onlineProviders", len(availableBrokers),
+		"defaultBroker", grove.DefaultRuntimeBrokerID,
+		"isHubNative", grove.GitRemote == "")
+
 	// Convert to summary for error responses, marking and prioritizing the default broker
 	brokerSummaries := make([]RuntimeBrokerSummary, 0, len(availableBrokers))
 	var defaultBrokerSummary *RuntimeBrokerSummary
@@ -4907,7 +4936,44 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 				return broker.ID, nil
 			}
 		}
-		// Requested broker is not a provider
+
+		// Broker is not yet a provider — try to auto-link it.
+		// The user explicitly selected this broker, so we honor that by linking it
+		// to the grove as a provider. This is common for hub-native groves where
+		// providers aren't established via CLI registration.
+		broker, err := s.findBrokerByIDOrSlug(ctx, requestedBrokerID)
+		if err == nil && broker != nil {
+			provider := &store.GroveProvider{
+				GroveID:    grove.ID,
+				BrokerID:   broker.ID,
+				BrokerName: broker.Name,
+				Status:     broker.Status,
+				LinkedBy:   "agent-create",
+			}
+			if addErr := s.store.AddGroveProvider(ctx, provider); addErr != nil {
+				slog.Warn("Failed to auto-link broker during agent creation",
+					"broker", broker.Name, "grove", grove.ID, "error", addErr)
+				RuntimeBrokerUnavailable(w, requestedBrokerID, brokerSummaries)
+				return "", store.ErrNotFound
+			}
+			slog.Info("Auto-linked broker as grove provider",
+				"broker", broker.Name, "brokerID", broker.ID, "grove", grove.ID)
+
+			// Set as default if grove has none
+			if grove.DefaultRuntimeBrokerID == "" {
+				grove.DefaultRuntimeBrokerID = broker.ID
+				if updateErr := s.store.UpdateGrove(ctx, grove); updateErr != nil {
+					slog.Warn("Failed to set default runtime broker",
+						"broker", broker.Name, "grove", grove.ID, "error", updateErr)
+				}
+			}
+			return broker.ID, nil
+		}
+
+		// Broker doesn't exist at all
+		slog.Warn("Requested broker not found during agent creation",
+			"requestedBrokerID", requestedBrokerID, "groveID", grove.ID,
+			"providerCount", len(allProviders))
 		RuntimeBrokerUnavailable(w, requestedBrokerID, brokerSummaries)
 		return "", store.ErrNotFound
 	}
@@ -4971,4 +5037,21 @@ func (s *Server) getAvailableBrokersForGrove(ctx context.Context, groveID string
 	}
 
 	return availableBrokers, nil
+}
+
+// findBrokerByIDOrSlug looks up a runtime broker by ID, slug, or name.
+func (s *Server) findBrokerByIDOrSlug(ctx context.Context, identifier string) (*store.RuntimeBroker, error) {
+	// Try by ID first
+	broker, err := s.store.GetRuntimeBroker(ctx, identifier)
+	if err == nil {
+		return broker, nil
+	}
+
+	// Try by name (case-insensitive)
+	broker, err = s.store.GetRuntimeBrokerByName(ctx, identifier)
+	if err == nil {
+		return broker, nil
+	}
+
+	return nil, store.ErrNotFound
 }
