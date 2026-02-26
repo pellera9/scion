@@ -44,6 +44,7 @@ import '@shoelace-style/shoelace/dist/components/select/select.js';
 import '@shoelace-style/shoelace/dist/components/spinner/spinner.js';
 import '@shoelace-style/shoelace/dist/components/textarea/textarea.js';
 import '@shoelace-style/shoelace/dist/components/tooltip/tooltip.js';
+import '@shoelace-style/shoelace/dist/components/dialog/dialog.js';
 
 // Import all components for client-side hydration and routing
 // App shell (imports shared components internally)
@@ -70,6 +71,7 @@ import '../components/pages/terminal.js';
 import '../components/pages/brokers.js';
 import '../components/pages/admin-users.js';
 import '../components/pages/admin-groups.js';
+import '../components/pages/admin-group-detail.js';
 import '../components/pages/not-found.js';
 import '../components/pages/login.js';
 
@@ -108,6 +110,7 @@ const ROUTES: { pattern: RegExp; tag: string }[] = [
   { pattern: /^\/brokers$/, tag: 'scion-page-brokers' },
   { pattern: /^\/admin\/users$/, tag: 'scion-page-admin-users' },
   { pattern: /^\/admin\/groups$/, tag: 'scion-page-admin-groups' },
+  { pattern: /^\/admin\/groups\/[^/]+$/, tag: 'scion-page-admin-group-detail' },
   { pattern: /^\/groves\/new$/, tag: 'scion-page-grove-create' },
   { pattern: /^\/groves\/[^/]+\/settings$/, tag: 'scion-page-grove-settings' },
   { pattern: /^\/groves\/[^/]+$/, tag: 'scion-page-grove-detail' },
@@ -171,6 +174,7 @@ async function init(): Promise<void> {
     customElements.whenDefined('scion-page-brokers'),
     customElements.whenDefined('scion-page-admin-users'),
     customElements.whenDefined('scion-page-admin-groups'),
+    customElements.whenDefined('scion-page-admin-group-detail'),
     customElements.whenDefined('scion-page-404'),
     customElements.whenDefined('scion-login-page'),
   ]);

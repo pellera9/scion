@@ -96,7 +96,11 @@ export class ScionPageAdminGroups extends LitElement {
       border-bottom: none;
     }
 
-    tr:hover td {
+    tr.clickable {
+      cursor: pointer;
+    }
+
+    tr.clickable:hover td {
       background: var(--scion-bg-subtle, #f1f5f9);
     }
 
@@ -415,7 +419,10 @@ export class ScionPageAdminGroups extends LitElement {
     const labels = group.labels ? Object.entries(group.labels) : [];
 
     return html`
-      <tr>
+      <tr class="clickable" @click=${() => {
+        window.history.pushState({}, '', `/admin/groups/${group.id}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }}>
         <td>
           <div class="group-identity">
             <div class="group-icon ${group.groupType}">
