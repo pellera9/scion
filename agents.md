@@ -76,7 +76,16 @@
 - **Harness Logic**: LLM-specific interactions should be encapsulated in `pkg/harness`.
 - **Refactoring**: Since the project is in alpha, refactoring that modifies or removes behavior does not require graceful deprecation.
 
-## Project use of the scion tool itself
+## Short hand gossary and project development terminology
+
+These terms may be used in shorthand with prompts
+
+- **hub-broker, combo server** References running the server command with both the hub function and the broker function running in the same invocation.
+- **hub-native, hub-grove** A special variant of a project/grove space, that is created on a hub server for use by agents dispatched from clients. These live in ~/.scion/groves/<hub-grove-name> on any broker that is a provider to the hub grove. This is in contrast to the arbitrary local path on a broker for a linked grove.
+- **agent-home** The directory that gets mounted as the home folder of the container user in the agent container
+
+
+## Project use of the scion cli itself
 Do not commit changes in the project's own `.scion` folder to git as part of committing progress on code and docs. These are managed and committed manually when template defaults are intentionally updated.
 
 Likewise, do not mess with any active agents while testing the tool, such as creating or deleting test agents, or other running agents inside this project.
