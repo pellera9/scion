@@ -2419,3 +2419,72 @@ func TestHTTPAgentDispatcher_DispatchAgentMessage_UsesSlugNotName(t *testing.T) 
 		t.Errorf("expected slug 'my-special-agent' to be dispatched, got '%s'", mockClient.lastAgentID)
 	}
 }
+
+func TestHTTPAgentDispatcher_DispatchAgentStart_IncludesAgentIDAndSlug(t *testing.T) {
+	ctx := context.Background()
+	memStore := createTestStore(t)
+
+	broker := &store.RuntimeBroker{
+		ID:       "broker-id-test",
+		Name:     "test-broker",
+		Slug:     "test-broker",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := memStore.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create runtime broker: %v", err)
+	}
+
+	grove := &store.Grove{
+		ID:   "grove-id-test",
+		Name: "test-grove",
+		Slug: "test-grove",
+	}
+	if err := memStore.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	provider := &store.GroveProvider{
+		GroveID:    "grove-id-test",
+		BrokerID:   "broker-id-test",
+		BrokerName: "test-broker",
+		LocalPath:  "/home/user/project/.scion",
+		Status:     store.BrokerStatusOnline,
+	}
+	if err := memStore.AddGroveProvider(ctx, provider); err != nil {
+		t.Fatalf("failed to add grove provider: %v", err)
+	}
+
+	mockClient := &mockRuntimeBrokerClient{}
+	dispatcher := NewHTTPAgentDispatcherWithClient(memStore, mockClient, false)
+
+	agent := &store.Agent{
+		ID:              "agent-uuid-123",
+		Name:            "my-agent",
+		Slug:            "my-agent",
+		GroveID:         "grove-id-test",
+		RuntimeBrokerID: "broker-id-test",
+		AppliedConfig: &store.AgentAppliedConfig{
+			HarnessConfig: "claude",
+		},
+	}
+
+	err := dispatcher.DispatchAgentStart(ctx, agent, "do something")
+	if err != nil {
+		t.Fatalf("DispatchAgentStart failed: %v", err)
+	}
+
+	if !mockClient.startCalled {
+		t.Fatal("expected StartAgent to be called")
+	}
+
+	// Verify SCION_AGENT_ID is set to the agent's UUID
+	if v, ok := mockClient.lastResolvedEnv["SCION_AGENT_ID"]; !ok || v != "agent-uuid-123" {
+		t.Errorf("expected SCION_AGENT_ID='agent-uuid-123', got '%s' (ok=%v)", v, ok)
+	}
+
+	// Verify SCION_AGENT_SLUG is set to the agent's slug
+	if v, ok := mockClient.lastResolvedEnv["SCION_AGENT_SLUG"]; !ok || v != "my-agent" {
+		t.Errorf("expected SCION_AGENT_SLUG='my-agent', got '%s' (ok=%v)", v, ok)
+	}
+}

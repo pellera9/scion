@@ -419,7 +419,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch s.handleExistingAgent(ctx, w, existingAgent, grove, runtimeBrokerID, req) {
+	switch s.handleExistingAgent(ctx, w, existingAgent, grove, runtimeBrokerID, req, notifySubscriberType, notifySubscriberID, createdBy) {
 	case existingAgentStarted, existingAgentErrored:
 		return // Response already written.
 	case existingAgentDeleted:
@@ -517,21 +517,8 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create notification subscription if requested
-	if req.Notify && notifySubscriberID != "" {
-		sub := &store.NotificationSubscription{
-			ID:              api.NewUUID(),
-			AgentID:         agent.ID,
-			SubscriberType:  notifySubscriberType,
-			SubscriberID:    notifySubscriberID,
-			GroveID:         req.GroveID,
-			TriggerActivities: []string{"COMPLETED", "WAITING_FOR_INPUT", "LIMITS_EXCEEDED"},
-			CreatedAt:       time.Now(),
-			CreatedBy:       createdBy,
-		}
-		if err := s.store.CreateNotificationSubscription(ctx, sub); err != nil {
-			slog.Warn("Failed to create notification subscription",
-				"agentID", agent.ID, "subscriber", notifySubscriberID, "error", err)
-		}
+	if req.Notify {
+		s.createNotifySubscription(ctx, agent.ID, req.GroveID, notifySubscriberType, notifySubscriberID, createdBy)
 	}
 
 	// Workspace bootstrap mode: if WorkspaceFiles are provided with a task,
@@ -2508,14 +2495,19 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 	// Resolve caller identity for creator tracking
 	var createdBy string
 	var creatorName string
+	var notifySubscriberType, notifySubscriberID string
 	if agentIdent := GetAgentIdentityFromContext(ctx); agentIdent != nil {
 		createdBy = agentIdent.ID()
 		if creatorAgent, err := s.store.GetAgent(ctx, agentIdent.ID()); err == nil {
 			creatorName = creatorAgent.Name
+			notifySubscriberType = store.SubscriberTypeAgent
+			notifySubscriberID = creatorAgent.Slug
 		}
 	} else if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
 		createdBy = userIdent.ID()
 		creatorName = userIdent.Email()
+		notifySubscriberType = store.SubscriberTypeUser
+		notifySubscriberID = userIdent.ID()
 	}
 
 	// Get grove to access its configuration (including default runtime broker)
@@ -2569,7 +2561,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 		return
 	}
 
-	switch s.handleExistingAgent(ctx, w, existingAgent, grove, runtimeBrokerID, req) {
+	switch s.handleExistingAgent(ctx, w, existingAgent, grove, runtimeBrokerID, req, notifySubscriberType, notifySubscriberID, createdBy) {
 	case existingAgentStarted, existingAgentErrored:
 		return // Response already written.
 	case existingAgentDeleted:
@@ -5982,6 +5974,28 @@ const (
 	existingAgentErrored
 )
 
+// createNotifySubscription creates a notification subscription for the given agent
+// if notify is true and a subscriber has been identified.
+func (s *Server) createNotifySubscription(ctx context.Context, agentID, groveID, notifySubscriberType, notifySubscriberID, createdBy string) {
+	if notifySubscriberID == "" {
+		return
+	}
+	sub := &store.NotificationSubscription{
+		ID:                api.NewUUID(),
+		AgentID:           agentID,
+		SubscriberType:    notifySubscriberType,
+		SubscriberID:      notifySubscriberID,
+		GroveID:           groveID,
+		TriggerActivities: []string{"COMPLETED", "WAITING_FOR_INPUT", "LIMITS_EXCEEDED"},
+		CreatedAt:         time.Now(),
+		CreatedBy:         createdBy,
+	}
+	if err := s.store.CreateNotificationSubscription(ctx, sub); err != nil {
+		slog.Warn("Failed to create notification subscription",
+			"agentID", agentID, "subscriber", notifySubscriberID, "error", err)
+	}
+}
+
 // handleExistingAgent encapsulates the full decision tree for an agent that
 // already exists when a create/start request arrives.
 //
@@ -5997,6 +6011,7 @@ func (s *Server) handleExistingAgent(
 	grove *store.Grove,
 	runtimeBrokerID string,
 	req CreateAgentRequest,
+	notifySubscriberType, notifySubscriberID, createdBy string,
 ) existingAgentResult {
 	if existingAgent == nil {
 		return existingAgentNone
@@ -6069,6 +6084,11 @@ func (s *Server) handleExistingAgent(
 		if err := s.store.UpdateAgent(ctx, existingAgent); err != nil {
 			// Log but continue — agent was started.
 			slog.Warn("Failed to update agent status after start", "error", err)
+		}
+
+		// Create notification subscription if requested.
+		if req.Notify {
+			s.createNotifySubscription(ctx, existingAgent.ID, existingAgent.GroveID, notifySubscriberType, notifySubscriberID, createdBy)
 		}
 
 		// Enrich and return the existing agent.

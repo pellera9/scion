@@ -2457,3 +2457,72 @@ func TestBrokerHeartbeat_PublishesActivitySSE(t *testing.T) {
 		t.Fatal("timed out waiting for SSE event from broker heartbeat")
 	}
 }
+
+func TestCreateAgent_RestartCreatesNotificationSubscription(t *testing.T) {
+	disp := &createAgentDispatcher{createPhase: string(state.PhaseRunning)}
+	srv, s, grove := setupCreateAgentServer(t, disp)
+	ctx := context.Background()
+
+	// Pre-create an agent in "created" phase (provisioned but not started)
+	existingAgent := &store.Agent{
+		ID:              "agent-notify-restart",
+		Slug:            "notify-agent",
+		Name:            "notify-agent",
+		GroveID:         grove.ID,
+		RuntimeBrokerID: "broker-create",
+		Phase:           string(state.PhaseCreated),
+	}
+	require.NoError(t, s.CreateAgent(ctx, existingAgent))
+
+	// Restart the agent with Notify: true — should create a notification subscription
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", CreateAgentRequest{
+		Name:    "notify-agent",
+		GroveID: grove.ID,
+		Task:    "restart task",
+		Notify:  true,
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code, "restarting agent should succeed")
+
+	var resp CreateAgentResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Agent)
+
+	// Verify a notification subscription was created for the agent
+	subs, err := s.GetNotificationSubscriptions(ctx, existingAgent.ID)
+	require.NoError(t, err)
+	assert.Len(t, subs, 1, "expected one notification subscription after restart with Notify")
+	assert.Equal(t, existingAgent.ID, subs[0].AgentID)
+	assert.Equal(t, grove.ID, subs[0].GroveID)
+}
+
+func TestCreateAgent_RestartNoSubscriptionWithoutNotify(t *testing.T) {
+	disp := &createAgentDispatcher{createPhase: string(state.PhaseRunning)}
+	srv, s, grove := setupCreateAgentServer(t, disp)
+	ctx := context.Background()
+
+	// Pre-create an agent in "created" phase
+	existingAgent := &store.Agent{
+		ID:              "agent-no-notify",
+		Slug:            "no-notify-agent",
+		Name:            "no-notify-agent",
+		GroveID:         grove.ID,
+		RuntimeBrokerID: "broker-create",
+		Phase:           string(state.PhaseCreated),
+	}
+	require.NoError(t, s.CreateAgent(ctx, existingAgent))
+
+	// Restart the agent without Notify — should NOT create a subscription
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", CreateAgentRequest{
+		Name:    "no-notify-agent",
+		GroveID: grove.ID,
+		Task:    "restart task",
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify no notification subscription was created
+	subs, err := s.GetNotificationSubscriptions(ctx, existingAgent.ID)
+	require.NoError(t, err)
+	assert.Len(t, subs, 0, "expected no notification subscription without Notify flag")
+}
