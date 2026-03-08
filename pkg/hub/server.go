@@ -1435,6 +1435,15 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 			level = slog.LevelWarn
 		}
 
+		if duration > 2*time.Second {
+			slog.Warn("Slow request",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Duration("elapsed", duration),
+				slog.Int("status", wrapped.statusCode),
+			)
+		}
+
 		slog.LogAttrs(r.Context(), level, "Request completed",
 			append(attrs,
 				slog.Int("status", wrapped.statusCode),

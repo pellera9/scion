@@ -226,23 +226,7 @@ export class ScionPageAgents extends LitElement {
     this.error = null;
 
     try {
-      const response = await apiFetch('/api/v1/agents');
-
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = (await response.json()) as { agents?: Agent[]; _capabilities?: Capabilities } | Agent[];
-      if (Array.isArray(data)) {
-        this.agents = data;
-        this.scopeCapabilities = undefined;
-      } else {
-        this.agents = data.agents || [];
-        this.scopeCapabilities = data._capabilities;
-      }
-      // Seed stateManager so SSE delta merging has full baseline data
-      stateManager.seedAgents(this.agents);
+      await this.fetchAndMergeAgents();
     } catch (err) {
       console.error('Failed to load agents:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load agents';
@@ -251,37 +235,85 @@ export class ScionPageAgents extends LitElement {
     }
   }
 
+  private backgroundRefresh(): void {
+    this.fetchAndMergeAgents().catch(err => {
+      console.warn('Background refresh failed:', err);
+    });
+  }
+
+  private async fetchAndMergeAgents(): Promise<void> {
+    const response = await apiFetch('/api/v1/agents');
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as { agents?: Agent[]; _capabilities?: Capabilities } | Agent[];
+    if (Array.isArray(data)) {
+      this.agents = data;
+      this.scopeCapabilities = undefined;
+    } else {
+      this.agents = data.agents || [];
+      this.scopeCapabilities = data._capabilities;
+    }
+    stateManager.seedAgents(this.agents);
+  }
+
   private async handleAgentAction(
     agentId: string,
     action: 'start' | 'stop' | 'delete',
     event?: MouseEvent
   ): Promise<void> {
-    this.actionLoading = { ...this.actionLoading, [agentId]: true };
+    if (action === 'delete') {
+      if (!event?.altKey && !confirm('Are you sure you want to delete this agent?')) {
+        return;
+      }
+      // Show per-button spinner for delete; don't optimistically remove
+      this.actionLoading = { ...this.actionLoading, [agentId]: true };
+      this.requestUpdate();
+
+      try {
+        const response = await apiFetch(`/api/v1/agents/${agentId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json().catch(() => ({}))) as {
+            message?: string;
+            error?: { message?: string };
+          };
+          throw new Error(
+            errorData.error?.message || errorData.message || 'Failed to delete agent',
+          );
+        }
+
+        // Server confirmed — remove from local list
+        this.agents = this.agents.filter(a => a.id !== agentId);
+        this.backgroundRefresh();
+      } catch (err) {
+        console.error('Failed to delete agent:', err);
+        alert(err instanceof Error ? err.message : 'Failed to delete agent');
+      } finally {
+        this.actionLoading = { ...this.actionLoading, [agentId]: false };
+      }
+      return;
+    }
+
+    // Start/stop: apply optimistic phase update immediately
+    const agentIndex = this.agents.findIndex(a => a.id === agentId);
+    if (agentIndex >= 0) {
+      const updated = { ...this.agents[agentIndex] };
+      updated.phase = action === 'start' ? 'starting' : 'stopping';
+      this.agents = [...this.agents];
+      this.agents[agentIndex] = updated;
+    }
 
     try {
-      let response: Response;
-
-      switch (action) {
-        case 'start':
-          response = await apiFetch(`/api/v1/agents/${agentId}/start`, {
-            method: 'POST',
-          });
-          break;
-        case 'stop':
-          response = await apiFetch(`/api/v1/agents/${agentId}/stop`, {
-            method: 'POST',
-          });
-          break;
-        case 'delete':
-          if (!event?.altKey && !confirm('Are you sure you want to delete this agent?')) {
-            this.actionLoading = { ...this.actionLoading, [agentId]: false };
-            return;
-          }
-          response = await apiFetch(`/api/v1/agents/${agentId}`, {
-            method: 'DELETE',
-          });
-          break;
-      }
+      const url = action === 'start'
+        ? `/api/v1/agents/${agentId}/start`
+        : `/api/v1/agents/${agentId}/stop`;
+      const response = await apiFetch(url, { method: 'POST' });
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as {
@@ -293,13 +325,12 @@ export class ScionPageAgents extends LitElement {
         );
       }
 
-      // Reload data to reflect changes
-      await this.loadAgents();
+      this.backgroundRefresh();
     } catch (err) {
       console.error(`Failed to ${action} agent:`, err);
       alert(err instanceof Error ? err.message : `Failed to ${action} agent`);
-    } finally {
-      this.actionLoading = { ...this.actionLoading, [agentId]: false };
+      // Roll back optimistic update on failure
+      this.backgroundRefresh();
     }
   }
 
@@ -312,6 +343,10 @@ export class ScionPageAgents extends LitElement {
       return;
     }
 
+    // Optimistic: mark all running agents as "stopping"
+    this.agents = this.agents.map(a =>
+      isAgentRunning(a) ? { ...a, phase: 'stopping' as const } : a
+    );
     this.stopAllLoading = true;
 
     try {
@@ -334,10 +369,11 @@ export class ScionPageAgents extends LitElement {
         alert(`Stopped ${result.stopped} agents, ${result.failed} failed.`);
       }
 
-      await this.loadAgents();
+      this.backgroundRefresh();
     } catch (err) {
       console.error('Failed to stop all agents:', err);
       alert(err instanceof Error ? err.message : 'Failed to stop all agents');
+      this.backgroundRefresh();
     } finally {
       this.stopAllLoading = false;
     }

@@ -39,11 +39,21 @@ export interface AccessDeniedDetail {
  * On 403, dispatches a `scion:access-denied` event on `window` with parsed
  * error details, but does NOT re-throw or alter the response.
  */
+const API_SLOW_THRESHOLD_MS = 2000;
+
 export async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
+  const start = performance.now();
   const response = await fetch(path, {
     ...options,
     credentials: 'include',
   });
+  const elapsed = performance.now() - start;
+
+  if (elapsed > API_SLOW_THRESHOLD_MS) {
+    console.warn(
+      `[api] Slow response: ${options?.method ?? 'GET'} ${path} took ${elapsed.toFixed(0)}ms`
+    );
+  }
 
   if (response.status === 403) {
     let detail: AccessDeniedDetail = {};

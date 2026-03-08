@@ -322,6 +322,16 @@ func RequestLogMiddleware(logger *slog.Logger, component string, patterns []Path
 				Protocol:      r.Proto,
 			}
 
+			// Warn on slow requests (>2s) via the default logger
+			if duration > 2*time.Second {
+				slog.Warn("Slow request",
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.Duration("elapsed", duration),
+					slog.Int("status", wrapped.statusCode),
+				)
+			}
+
 			// Determine log level
 			level := slog.LevelInfo
 			if wrapped.statusCode >= 500 {

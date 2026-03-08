@@ -115,7 +115,7 @@ export class ScionPageAgentDetail extends LitElement {
   private error: string | null = null;
 
   @state()
-  private actionLoading = false;
+  private actionLoading: Record<string, boolean> = {};
 
   @state()
   private userNotifications: Notification[] = [];
@@ -711,32 +711,48 @@ export class ScionPageAgentDetail extends LitElement {
   private async handleAction(action: 'start' | 'stop' | 'delete', event?: MouseEvent): Promise<void> {
     if (!this.agent) return;
 
-    this.actionLoading = true;
+    if (action === 'delete') {
+      if (!event?.altKey && !confirm('Are you sure you want to delete this agent?')) {
+        return;
+      }
+      this.actionLoading = { ...this.actionLoading, delete: true };
+
+      try {
+        const response = await apiFetch(`/api/v1/agents/${this.agentId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json().catch(() => ({}))) as {
+            message?: string;
+            error?: { message?: string };
+          };
+          throw new Error(
+            errorData.error?.message || errorData.message || 'Failed to delete agent'
+          );
+        }
+
+        window.location.href = '/agents';
+      } catch (err) {
+        console.error('Failed to delete agent:', err);
+        alert(err instanceof Error ? err.message : 'Failed to delete agent');
+      } finally {
+        this.actionLoading = { ...this.actionLoading, delete: false };
+      }
+      return;
+    }
+
+    // Start/stop: apply optimistic phase update
+    this.agent = {
+      ...this.agent,
+      phase: action === 'start' ? 'starting' : 'stopping',
+    };
 
     try {
-      let response: Response;
-
-      switch (action) {
-        case 'start':
-          response = await apiFetch(`/api/v1/agents/${this.agentId}/start`, {
-            method: 'POST',
-          });
-          break;
-        case 'stop':
-          response = await apiFetch(`/api/v1/agents/${this.agentId}/stop`, {
-            method: 'POST',
-          });
-          break;
-        case 'delete':
-          if (!event?.altKey && !confirm('Are you sure you want to delete this agent?')) {
-            this.actionLoading = false;
-            return;
-          }
-          response = await apiFetch(`/api/v1/agents/${this.agentId}`, {
-            method: 'DELETE',
-          });
-          break;
-      }
+      const url = action === 'start'
+        ? `/api/v1/agents/${this.agentId}/start`
+        : `/api/v1/agents/${this.agentId}/stop`;
+      const response = await apiFetch(url, { method: 'POST' });
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as {
@@ -748,17 +764,27 @@ export class ScionPageAgentDetail extends LitElement {
         );
       }
 
-      if (action === 'delete') {
-        window.location.href = '/agents';
-      } else {
-        await this.loadData();
-      }
+      this.backgroundRefresh();
     } catch (err) {
       console.error(`Failed to ${action} agent:`, err);
       alert(err instanceof Error ? err.message : `Failed to ${action} agent`);
-    } finally {
-      this.actionLoading = false;
+      // Roll back optimistic update
+      this.backgroundRefresh();
     }
+  }
+
+  private backgroundRefresh(): void {
+    this.fetchAndMergeAgent().catch(err => {
+      console.warn('Background refresh failed:', err);
+    });
+  }
+
+  private async fetchAndMergeAgent(): Promise<void> {
+    const agentResponse = await apiFetch(`/api/v1/agents/${this.agentId}`);
+    if (!agentResponse.ok) return;
+
+    this.agent = (await agentResponse.json()) as Agent;
+    stateManager.seedAgents([this.agent]);
   }
 
   private handleTabShow(e: CustomEvent<{ name: string }>): void {
@@ -905,8 +931,8 @@ export class ScionPageAgentDetail extends LitElement {
                     variant="danger"
                     size="small"
                     outline
-                    ?loading=${this.actionLoading}
-                    ?disabled=${this.actionLoading}
+                    ?loading=${this.actionLoading['stop']}
+                    ?disabled=${this.actionLoading['stop']}
                     @click=${() => this.handleAction('stop')}
                   >
                     <sl-icon slot="prefix" name="stop-circle"></sl-icon>
@@ -919,8 +945,8 @@ export class ScionPageAgentDetail extends LitElement {
                   <sl-button
                     variant="success"
                     size="small"
-                    ?loading=${this.actionLoading}
-                    ?disabled=${this.actionLoading}
+                    ?loading=${this.actionLoading['start']}
+                    ?disabled=${this.actionLoading['start']}
                     @click=${() => this.handleAction('start')}
                   >
                     <sl-icon slot="prefix" name="play-circle"></sl-icon>
@@ -943,8 +969,8 @@ export class ScionPageAgentDetail extends LitElement {
                 <sl-button
                   variant="danger"
                   size="small"
-                  ?loading=${this.actionLoading}
-                  ?disabled=${this.actionLoading}
+                  ?loading=${this.actionLoading['delete']}
+                  ?disabled=${this.actionLoading['delete']}
                   @click=${(e: MouseEvent) => this.handleAction('delete', e)}
                 >
                   <sl-icon slot="prefix" name="trash"></sl-icon>

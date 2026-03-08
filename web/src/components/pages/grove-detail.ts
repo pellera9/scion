@@ -614,6 +614,29 @@ export class ScionPageGroveDetail extends LitElement {
     }
   }
 
+  private backgroundRefresh(): void {
+    this.fetchAndMergeAgents().catch(err => {
+      console.warn('Background refresh failed:', err);
+    });
+  }
+
+  private async fetchAndMergeAgents(): Promise<void> {
+    const response = await apiFetch(`/api/v1/groves/${this.groveId}/agents`);
+    if (!response.ok) return;
+
+    const data = (await response.json()) as
+      | { agents?: Agent[]; _capabilities?: Capabilities }
+      | Agent[];
+    if (Array.isArray(data)) {
+      this.agents = data;
+      this.agentScopeCapabilities = undefined;
+    } else {
+      this.agents = data.agents || [];
+      this.agentScopeCapabilities = data._capabilities;
+    }
+    stateManager.seedAgents(this.agents);
+  }
+
   private renderGroveIcon() {
     if (!this.grove) return nothing;
     const type = this.grove.groveType || (this.grove.gitRemote ? 'git' : 'hub-native');
@@ -709,8 +732,8 @@ export class ScionPageGroveDetail extends LitElement {
         throw new Error(errorData.message || `Upload failed: HTTP ${response.status}`);
       }
 
-      // Reload file list
-      await this.loadWorkspaceFiles();
+      // Reload file list (non-blocking for workspace operations)
+      void this.loadWorkspaceFiles();
     } catch (err) {
       console.error('Failed to upload files:', err);
       this.workspaceError = err instanceof Error ? err.message : 'Upload failed';
@@ -743,8 +766,9 @@ export class ScionPageGroveDetail extends LitElement {
         throw new Error(errorData.message || `Delete failed: HTTP ${response.status}`);
       }
 
-      // Reload file list
-      await this.loadWorkspaceFiles();
+      // Remove file from local list immediately, then refresh in background
+      this.workspaceFiles = this.workspaceFiles.filter(f => f.path !== filePath);
+      void this.loadWorkspaceFiles();
     } catch (err) {
       console.error('Failed to delete file:', err);
       this.workspaceError = err instanceof Error ? err.message : 'Delete failed';
@@ -776,32 +800,54 @@ export class ScionPageGroveDetail extends LitElement {
     agentId: string,
     action: 'start' | 'stop' | 'delete'
   ): Promise<void> {
-    this.actionLoading = { ...this.actionLoading, [agentId]: true };
+    if (action === 'delete') {
+      if (!confirm('Are you sure you want to delete this agent?')) {
+        return;
+      }
+      this.actionLoading = { ...this.actionLoading, [agentId]: true };
+      this.requestUpdate();
+
+      try {
+        const response = await apiFetch(`/api/v1/agents/${agentId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json().catch(() => ({}))) as {
+            message?: string;
+            error?: { message?: string };
+          };
+          throw new Error(
+            errorData.error?.message || errorData.message || 'Failed to delete agent'
+          );
+        }
+
+        // Server confirmed — remove from local list
+        this.agents = this.agents.filter(a => a.id !== agentId);
+        this.backgroundRefresh();
+      } catch (err) {
+        console.error('Failed to delete agent:', err);
+        alert(err instanceof Error ? err.message : 'Failed to delete agent');
+      } finally {
+        this.actionLoading = { ...this.actionLoading, [agentId]: false };
+      }
+      return;
+    }
+
+    // Start/stop: apply optimistic phase update immediately
+    const agentIndex = this.agents.findIndex(a => a.id === agentId);
+    if (agentIndex >= 0) {
+      const updated = { ...this.agents[agentIndex] };
+      updated.phase = action === 'start' ? 'starting' : 'stopping';
+      this.agents = [...this.agents];
+      this.agents[agentIndex] = updated;
+    }
 
     try {
-      let response: Response;
-
-      switch (action) {
-        case 'start':
-          response = await apiFetch(`/api/v1/agents/${agentId}/start`, {
-            method: 'POST',
-          });
-          break;
-        case 'stop':
-          response = await apiFetch(`/api/v1/agents/${agentId}/stop`, {
-            method: 'POST',
-          });
-          break;
-        case 'delete':
-          if (!confirm('Are you sure you want to delete this agent?')) {
-            this.actionLoading = { ...this.actionLoading, [agentId]: false };
-            return;
-          }
-          response = await apiFetch(`/api/v1/agents/${agentId}`, {
-            method: 'DELETE',
-          });
-          break;
-      }
+      const url = action === 'start'
+        ? `/api/v1/agents/${agentId}/start`
+        : `/api/v1/agents/${agentId}/stop`;
+      const response = await apiFetch(url, { method: 'POST' });
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as {
@@ -813,13 +859,11 @@ export class ScionPageGroveDetail extends LitElement {
         );
       }
 
-      // Reload data to reflect changes
-      await this.loadData();
+      this.backgroundRefresh();
     } catch (err) {
       console.error(`Failed to ${action} agent:`, err);
       alert(err instanceof Error ? err.message : `Failed to ${action} agent`);
-    } finally {
-      this.actionLoading = { ...this.actionLoading, [agentId]: false };
+      this.backgroundRefresh();
     }
   }
 
@@ -832,6 +876,10 @@ export class ScionPageGroveDetail extends LitElement {
       return;
     }
 
+    // Optimistic: mark all running agents as "stopping"
+    this.agents = this.agents.map(a =>
+      isAgentRunning(a) ? { ...a, phase: 'stopping' as const } : a
+    );
     this.stopAllLoading = true;
 
     try {
@@ -854,10 +902,11 @@ export class ScionPageGroveDetail extends LitElement {
         alert(`Stopped ${result.stopped} agents, ${result.failed} failed.`);
       }
 
-      await this.loadData();
+      this.backgroundRefresh();
     } catch (err) {
       console.error('Failed to stop all agents:', err);
       alert(err instanceof Error ? err.message : 'Failed to stop all agents');
+      this.backgroundRefresh();
     } finally {
       this.stopAllLoading = false;
     }
