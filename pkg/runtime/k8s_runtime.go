@@ -131,10 +131,18 @@ func (r *KubernetesRuntime) Run(ctx context.Context, config RunConfig) (string, 
 		}
 	}
 
+	// Create K8s Secret for ResolvedAuth files (portable alternative to hostPath).
+	if config.ResolvedAuth != nil && len(config.ResolvedAuth.Files) > 0 {
+		if err := r.createAuthFileSecret(ctx, namespace, config.Name, config.ResolvedAuth.Files, config.Labels); err != nil {
+			return "", fmt.Errorf("failed to create auth file secret: %w", err)
+		}
+	}
+
 	pod := r.buildPod(namespace, config)
 
 	writeK8sRuntimeDebugFile(config, namespace, pod)
 
+	runtimeLog.Info("Creating pod", "agent", config.Name, "namespace", namespace, "image", config.Image, "phase", "pod-create")
 	fmt.Printf("  Provisioning pod '%s' in namespace '%s'...\n", config.Name, namespace)
 	createdPod, err := r.Client.Clientset.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
@@ -144,12 +152,14 @@ func (r *KubernetesRuntime) Run(ctx context.Context, config RunConfig) (string, 
 	}
 
 	// Wait for Ready
+	runtimeLog.Info("Waiting for pod ready", "agent", config.Name, "namespace", namespace, "phase", "wait-schedule")
 	if err := r.waitForPodReady(ctx, namespace, createdPod.Name); err != nil {
 		return createdPod.Name, err
 	}
 
 	if config.HomeDir != "" {
 		destHome := fmt.Sprintf("/home/%s", config.UnixUsername)
+		runtimeLog.Info("Syncing agent home", "agent", config.Name, "source", config.HomeDir, "dest", destHome, "phase", "home-sync")
 		fmt.Printf("  Syncing agent home (%s -> %s)...\n", config.HomeDir, destHome)
 		err = r.syncToPod(ctx, namespace, createdPod.Name, config.HomeDir, destHome)
 		if err != nil {
@@ -158,6 +168,7 @@ func (r *KubernetesRuntime) Run(ctx context.Context, config RunConfig) (string, 
 	}
 
 	if config.Workspace != "" {
+		runtimeLog.Info("Syncing workspace", "agent", config.Name, "source", config.Workspace, "phase", "workspace-sync")
 		fmt.Printf("  Syncing workspace (%s -> /workspace)...\n", config.Workspace)
 		err = r.syncToPod(ctx, namespace, createdPod.Name, config.Workspace, "/workspace")
 		if err != nil {
@@ -165,6 +176,7 @@ func (r *KubernetesRuntime) Run(ctx context.Context, config RunConfig) (string, 
 		}
 	}
 
+	runtimeLog.Info("Agent started successfully", "agent", createdPod.Name, "namespace", namespace, "phase", "complete")
 	fmt.Printf("Agent '%s' started successfully.\n", createdPod.Name)
 	return createdPod.Name, nil
 }
@@ -403,6 +415,46 @@ func (r *KubernetesRuntime) cleanupAgentSecrets(ctx context.Context, namespace, 
 	}
 }
 
+// createAuthFileSecret creates a K8s Secret containing ResolvedAuth file contents
+// so that auth files can be projected into pods via volume mounts instead of hostPath.
+func (r *KubernetesRuntime) createAuthFileSecret(ctx context.Context, namespace, agentName string, files []api.FileMapping, labels map[string]string) error {
+	secretName := fmt.Sprintf("scion-auth-%s", agentName)
+	data := make(map[string][]byte)
+
+	for i, f := range files {
+		content, err := os.ReadFile(f.SourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to read auth file %s: %w", f.SourcePath, err)
+		}
+		keyName := fmt.Sprintf("auth-file-%d", i)
+		data[keyName] = content
+	}
+
+	secretLabels := map[string]string{
+		"scion.agent": agentName,
+	}
+	for k, v := range labels {
+		if strings.HasPrefix(k, "scion.") {
+			secretLabels[k] = v
+		}
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels:    secretLabels,
+		},
+		Data: data,
+	}
+
+	_, err := r.Client.Clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create auth secret: %w", err)
+	}
+	return nil
+}
+
 func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1.Pod {
 	// Command Resolution
 	var cmd []string
@@ -425,8 +477,23 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 	cmdLine := strings.Join(quotedArgs, " ")
 	cmd = []string{"tmux", "new-session", "-s", "scion", cmdLine}
 
-	// Env Resolution
+	// Env Resolution — match local runtimes by including harness env + telemetry env.
 	envVars := []corev1.EnvVar{}
+
+	// Harness env (system prompt, agent name, etc.) — parity with buildCommonRunArgs.
+	if config.Harness != nil {
+		for k, v := range config.Harness.GetEnv(config.Name, config.HomeDir, config.UnixUsername) {
+			if v != "" {
+				envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
+			}
+		}
+		if config.TelemetryEnabled {
+			for k, v := range config.Harness.GetTelemetryEnv() {
+				envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
+			}
+		}
+	}
+
 	for _, e := range config.Env {
 		// Parse "KEY=VALUE"
 		parts := strings.SplitN(e, "=", 2)
@@ -557,29 +624,35 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 				})
 			}
 		}
-	} else if config.ResolvedAuth != nil {
-		// New auth pipeline: inject ResolvedAuth env vars and file mounts
+	}
+
+	// ResolvedAuth is always applied when present (composes with ResolvedSecrets).
+	// Auth files are injected via a K8s Secret rather than hostPath for portability.
+	if config.ResolvedAuth != nil {
 		for k, v := range config.ResolvedAuth.EnvVars {
 			envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
 		}
 		containerHome := fmt.Sprintf("/home/%s", config.UnixUsername)
-		for _, f := range config.ResolvedAuth.Files {
-			target := expandTildeTarget(f.ContainerPath, containerHome)
-			// Create a host-path volume for each auth file
-			volName := fmt.Sprintf("auth-file-%d", len(extraVolumes))
+		if len(config.ResolvedAuth.Files) > 0 {
+			volName := "auth-files"
 			extraVolumes = append(extraVolumes, corev1.Volume{
 				Name: volName,
 				VolumeSource: corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{
-						Path: f.SourcePath,
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: fmt.Sprintf("scion-auth-%s", config.Name),
 					},
 				},
 			})
-			extraVolumeMounts = append(extraVolumeMounts, corev1.VolumeMount{
-				Name:      volName,
-				MountPath: target,
-				ReadOnly:  true,
-			})
+			for i, f := range config.ResolvedAuth.Files {
+				target := expandTildeTarget(f.ContainerPath, containerHome)
+				keyName := fmt.Sprintf("auth-file-%d", i)
+				extraVolumeMounts = append(extraVolumeMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: target,
+					SubPath:   keyName,
+					ReadOnly:  true,
+				})
+			}
 		}
 	}
 
@@ -683,7 +756,7 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 		}
 	}
 
-	// Process Volumes (specifically GCS)
+	// Process Volumes
 	type gcsVolInfo struct {
 		Source string `json:"source"`
 		Target string `json:"target"`
@@ -693,7 +766,8 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 	var gcsVolumes []gcsVolInfo
 
 	for i, v := range config.Volumes {
-		if v.Type == "gcs" {
+		switch v.Type {
+		case "gcs":
 			volName := fmt.Sprintf("gcs-vol-%d", i)
 			attrs := map[string]string{
 				"bucketName": v.Bucket,
@@ -730,6 +804,15 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 				Bucket: v.Bucket,
 				Prefix: v.Prefix,
 			})
+		default:
+			// Local/bind-mount volumes are not supported on Kubernetes.
+			// Log explicitly rather than silently ignoring.
+			volType := v.Type
+			if volType == "" {
+				volType = "local"
+			}
+			runtimeLog.Warn("Volume type not supported on Kubernetes runtime, skipping",
+				"type", volType, "source", v.Source, "target", v.Target)
 		}
 	}
 
@@ -793,6 +876,7 @@ func (r *KubernetesRuntime) waitForPodReady(ctx context.Context, namespace, podN
 			if containerStatus != nil && containerStatus.State.Waiting != nil {
 				reason := containerStatus.State.Waiting.Reason
 				if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "InvalidImageName" {
+					runtimeLog.Error("Pod failed to start", "pod", podName, "reason", reason, "message", containerStatus.State.Waiting.Message, "phase", "image-pull")
 					return fmt.Errorf("pod failed to start: %s - %s", reason, containerStatus.State.Waiting.Message)
 				}
 			}
