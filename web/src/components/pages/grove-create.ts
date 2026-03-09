@@ -41,6 +41,13 @@ export class ScionPageGroveCreate extends LitElement {
   @state()
   private mode: GroveMode = 'hub';
 
+  override updated(changedProperties: Map<string, unknown>): void {
+    super.updated(changedProperties);
+    if (changedProperties.has('error') && this.error) {
+      this.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   static override styles = css`
     :host {
       display: block;

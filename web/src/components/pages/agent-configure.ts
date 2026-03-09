@@ -318,6 +318,13 @@ export class ScionPageAgentConfigure extends LitElement {
     }
   `;
 
+  override updated(changedProperties: Map<string, unknown>): void {
+    super.updated(changedProperties);
+    if (changedProperties.has('error') && this.error) {
+      this.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   override connectedCallback(): void {
     super.connectedCallback();
     if (typeof window !== 'undefined') {
