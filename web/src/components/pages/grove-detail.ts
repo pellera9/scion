@@ -643,7 +643,14 @@ export class ScionPageGroveDetail extends LitElement {
     const agentMap = new Map(this.agents.map((a) => [a.id, a]));
     for (const agent of updatedAgents) {
       if (agent.groveId === this.groveId || agentMap.has(agent.id)) {
-        agentMap.set(agent.id, { ...agentMap.get(agent.id), ...agent } as Agent);
+        const existing = agentMap.get(agent.id);
+        const merged = { ...existing, ...agent } as Agent;
+        // New agents from SSE don't carry per-resource _capabilities.
+        // Inherit scope-level capabilities so action buttons render.
+        if (!merged._capabilities && this.agentScopeCapabilities) {
+          merged._capabilities = this.agentScopeCapabilities;
+        }
+        agentMap.set(agent.id, merged);
       }
     }
     // Remove agents that were explicitly deleted via SSE

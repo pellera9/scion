@@ -101,6 +101,7 @@ type AgentCreatedEvent struct {
 	RuntimeBrokerID string `json:"runtimeBrokerId,omitempty"`
 	CreatedBy       string `json:"createdBy,omitempty"`
 	Visibility      string `json:"visibility,omitempty"`
+	TaskSummary     string `json:"taskSummary,omitempty"`
 	Created         string `json:"created,omitempty"`
 }
 
@@ -297,6 +298,7 @@ func (p *ChannelEventPublisher) PublishAgentCreated(_ context.Context, agent *st
 		RuntimeBrokerID: agent.RuntimeBrokerID,
 		CreatedBy:       agent.CreatedBy,
 		Visibility:      agent.Visibility,
+		TaskSummary:     agent.TaskSummary,
 	}
 	if !agent.Created.IsZero() {
 		evt.Created = agent.Created.Format("2006-01-02T15:04:05Z07:00")

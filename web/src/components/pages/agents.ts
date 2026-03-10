@@ -209,8 +209,13 @@ export class ScionPageAgents extends LitElement {
       const existing = agentMap.get(agent.id);
       const merged = { ...existing, ...agent } as Agent;
       // Preserve _capabilities from existing state when the delta lacks them.
-      if (!agent._capabilities && existing?._capabilities) {
-        merged._capabilities = existing._capabilities;
+      // For brand-new agents from SSE, inherit scope-level capabilities.
+      if (!merged._capabilities) {
+        if (existing?._capabilities) {
+          merged._capabilities = existing._capabilities;
+        } else if (this.scopeCapabilities) {
+          merged._capabilities = this.scopeCapabilities;
+        }
       }
       agentMap.set(agent.id, merged);
     }
