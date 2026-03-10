@@ -1447,14 +1447,27 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		// what settings.Hub.Endpoint says (it may contain a stale standalone port).
 		hubEndpointForRH := cfg.RuntimeBroker.HubEndpoint
 		if hubEndpointForRH == "" && enableHub {
-			// Co-located hub: compute the correct local endpoint.
-			port := cfg.Hub.Port
-			if enableWeb {
-				port = webPort
-			}
-			hubEndpointForRH = fmt.Sprintf("http://localhost:%d", port)
-			if enableDebug {
-				log.Printf("Co-located Hub detected: using %s for heartbeat and template hydration", hubEndpointForRH)
+			// Co-located hub: if a public endpoint was resolved (e.g. from
+			// SCION_SERVER_BASE_URL or explicit hub.endpoint config), use it
+			// so that agents inside containers can reach the hub directly
+			// without a bridge address. This is the production path.
+			// Otherwise, compute the localhost endpoint with the correct port
+			// for workstation/dev mode (the bridge override will handle
+			// container reachability).
+			if hubEndpoint != "" && !isLocalhostURL(hubEndpoint) {
+				hubEndpointForRH = hubEndpoint
+				if enableDebug {
+					log.Printf("Co-located Hub: using public endpoint %s for broker and agents", hubEndpointForRH)
+				}
+			} else {
+				port := cfg.Hub.Port
+				if enableWeb {
+					port = webPort
+				}
+				hubEndpointForRH = fmt.Sprintf("http://localhost:%d", port)
+				if enableDebug {
+					log.Printf("Co-located Hub detected: using %s for heartbeat and template hydration", hubEndpointForRH)
+				}
 			}
 		} else if hubEndpointForRH == "" && settings.Hub != nil {
 			// Remote hub: fall back to the persisted endpoint.
@@ -2233,6 +2246,16 @@ func init() {
 
 	// Install flags
 	serverInstallCmd.Flags().BoolVar(&serverInstallProduction, "production", false, "Generate service file for production mode")
+}
+
+// isLocalhostURL returns true if the given URL refers to a loopback address.
+func isLocalhostURL(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // containerBridgeEndpoint returns a container-accessible URL that replaces

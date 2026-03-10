@@ -96,3 +96,24 @@ func TestContainerBridgeEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestIsLocalhostURL(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"http://localhost:8080", true},
+		{"http://127.0.0.1:9810", true},
+		{"http://[::1]:8080", true},
+		{"https://hub.example.com", false},
+		{"https://hub.demo.scion-ai.dev", false},
+		{"http://10.0.0.1:8080", false},
+		{"", false},
+		{"://invalid", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.endpoint, func(t *testing.T) {
+			assert.Equal(t, tt.want, isLocalhostURL(tt.endpoint))
+		})
+	}
+}
