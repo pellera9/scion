@@ -61,7 +61,9 @@ jobs:
         run: |
           UNFORMATTED=$(gofmt -l .)
           if [ -n "$UNFORMATTED" ]; then
-            echo "::warning::The following files need formatting: $UNFORMATTED"
+            echo "::warning::Go formatting issues found. See the list of files below."
+            echo "The following files need formatting:"
+            echo "$UNFORMATTED"
             exit 1
           fi
 
