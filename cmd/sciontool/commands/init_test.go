@@ -402,6 +402,85 @@ func TestUseDirectPasswdEdit(t *testing.T) {
 	}
 }
 
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		name     string
+		stderr   string
+		expected bool
+	}{
+		{
+			name:     "authentication failed",
+			stderr:   "fatal: Authentication failed for 'https://github.com/org/repo.git/'",
+			expected: true,
+		},
+		{
+			name:     "could not read username",
+			stderr:   "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+			expected: true,
+		},
+		{
+			name:     "403 forbidden",
+			stderr:   "fatal: unable to access 'https://github.com/org/repo.git/': The requested URL returned error: 403",
+			expected: true,
+		},
+		{
+			name:     "401 unauthorized",
+			stderr:   "fatal: unable to access 'https://github.com/org/repo.git/': The requested URL returned error: 401",
+			expected: true,
+		},
+		{
+			name:     "invalid credentials",
+			stderr:   "remote: Invalid credentials",
+			expected: true,
+		},
+		{
+			name:     "branch not found",
+			stderr:   "fatal: Remote branch 'nonexistent' not found in upstream origin",
+			expected: false,
+		},
+		{
+			name:     "network error",
+			stderr:   "fatal: unable to access 'https://nonexistent.invalid/org/repo.git/': Could not resolve host: nonexistent.invalid",
+			expected: false,
+		},
+		{
+			name:     "empty stderr",
+			stderr:   "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAuthError(tt.stderr); got != tt.expected {
+				t.Errorf("isAuthError(%q) = %v, want %v", tt.stderr, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatCloneError(t *testing.T) {
+	t.Run("no token", func(t *testing.T) {
+		err := formatCloneError("fatal: could not read Username", "")
+		if !strings.Contains(err.Error(), "no GITHUB_TOKEN secret configured") {
+			t.Errorf("expected 'no GITHUB_TOKEN' message, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "fatal: could not read Username") {
+			t.Errorf("expected stderr in error, got: %v", err)
+		}
+	})
+
+	t.Run("with token", func(t *testing.T) {
+		err := formatCloneError("fatal: Authentication failed", "ghp_token123")
+		if !strings.Contains(err.Error(), "GITHUB_TOKEN may be invalid") {
+			t.Errorf("expected 'invalid token' message, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "fatal: Authentication failed") {
+			t.Errorf("expected stderr in error, got: %v", err)
+		}
+	})
+}
+
 func TestIsClaude(t *testing.T) {
 	tests := []struct {
 		name     string

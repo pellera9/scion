@@ -211,9 +211,16 @@ func runInit(args []string) int {
 	// Clone git workspace if configured (hub-first git groves)
 	if err := gitCloneWorkspace(targetUID, targetGID); err != nil {
 		log.Error("Git clone failed: %v", err)
+
+		// Update local agent-info.json to error state so local status readers see the failure
+		statusHandler.UpdatePhase(state.PhaseError, "", "")
+
+		// Report error to Hub so the agent doesn't stay stuck in "cloning" state
 		if hubClient := hub.NewClient(); hubClient != nil && hubClient.IsConfigured() {
 			hubCtx, hubCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			hubClient.ReportState(hubCtx, state.PhaseError, "", fmt.Sprintf("git clone failed: %v", err))
+			if hubErr := hubClient.ReportState(hubCtx, state.PhaseError, "", fmt.Sprintf("git clone failed: %v", err)); hubErr != nil {
+				log.Error("Failed to report clone error to Hub: %v", hubErr)
+			}
 			hubCancel()
 		}
 		return 1
@@ -847,10 +854,18 @@ func gitCloneWorkspace(uid, gid int) error {
 		cloneArgs := []string{"clone", "--depth", depthStr, "--branch", agentBranch, authURL, workspacePath}
 		tryCmd := exec.Command("git", cloneArgs...)
 		setCredential(tryCmd)
+		var tryStderr bytes.Buffer
+		tryCmd.Stderr = &tryStderr
 		if err := tryCmd.Run(); err == nil {
 			clonedBranch = agentBranch
 			log.Info("Successfully cloned agent branch %s from origin", agentBranch)
 		} else {
+			tryErrOutput := sanitizeGitOutput(tryStderr.String(), token)
+			// If git reports authentication failure, don't bother trying the
+			// default branch — the credentials are wrong/missing for the repo.
+			if isAuthError(tryErrOutput) {
+				return formatCloneError(tryErrOutput, token)
+			}
 			log.Info("Agent branch %s not found on origin, falling back to %s", agentBranch, branch)
 		}
 	}
@@ -865,7 +880,7 @@ func gitCloneWorkspace(uid, gid int) error {
 
 		if err := cmd.Run(); err != nil {
 			errOutput := sanitizeGitOutput(stderr.String(), token)
-			return fmt.Errorf("git clone failed: %s (check that GITHUB_TOKEN is set and has Contents read access)", errOutput)
+			return formatCloneError(errOutput, token)
 		}
 		clonedBranch = branch
 	}
@@ -938,6 +953,26 @@ func gitCloneWorkspace(uid, gid int) error {
 
 	log.Info("Git clone complete: %s on branch %s", normalizedURL, branchName)
 	return nil
+}
+
+// isAuthError returns true if the git stderr output indicates an authentication
+// or authorization failure (as opposed to a branch-not-found or network error).
+func isAuthError(sanitizedStderr string) bool {
+	lower := strings.ToLower(sanitizedStderr)
+	return strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "could not read username") ||
+		strings.Contains(lower, "invalid credentials") ||
+		strings.Contains(lower, "403") ||
+		strings.Contains(lower, "401")
+}
+
+// formatCloneError builds a descriptive error from sanitized git stderr.
+// When no GITHUB_TOKEN is set, the message calls that out specifically.
+func formatCloneError(sanitizedStderr, token string) error {
+	if token == "" {
+		return fmt.Errorf("git clone failed (no GITHUB_TOKEN secret configured — the repository may require authentication): %s", sanitizedStderr)
+	}
+	return fmt.Errorf("git clone failed (GITHUB_TOKEN may be invalid or lack Contents read access): %s", sanitizedStderr)
 }
 
 // sanitizeGitOutput replaces any occurrence of the token in git output with "***".
