@@ -19,6 +19,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func setupGitRepo(t *testing.T) string {
@@ -400,9 +402,12 @@ func TestHashGroveID(t *testing.T) {
 		t.Errorf("HashGroveID not deterministic: %q != %q", id1, id2)
 	}
 
-	// Length: always 16 hex characters
-	if len(id1) != 16 {
-		t.Errorf("HashGroveID length = %d, want 16", len(id1))
+	// Must be a valid UUID (36 chars, parseable)
+	if len(id1) != 36 {
+		t.Errorf("HashGroveID length = %d, want 36 (UUID format)", len(id1))
+	}
+	if _, err := uuid.Parse(id1); err != nil {
+		t.Errorf("HashGroveID produced invalid UUID %q: %v", id1, err)
 	}
 
 	// Different inputs → different outputs

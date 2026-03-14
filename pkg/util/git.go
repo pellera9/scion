@@ -15,8 +15,6 @@
 package util
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // IsGitRepo returns true if the current working directory is inside a git repository.
@@ -510,10 +510,12 @@ func ExtractOrgRepo(gitURL string) (org, repo string) {
 	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
+// scionNamespace is a fixed UUID v5 namespace for deriving deterministic grove IDs.
+var scionNamespace = uuid.MustParse("a1b8e4f0-7c3d-4a1e-9f2b-6d5c8e7a0b1f")
+
 // HashGroveID computes a deterministic grove ID from a normalized identity string.
-// It takes the first 8 bytes of the SHA-256 hash and hex-encodes them to produce
-// a 16-character string.
+// It uses UUID v5 (SHA-1 based) with a fixed Scion namespace to produce a valid
+// UUID that is deterministic for a given input.
 func HashGroveID(normalized string) string {
-	h := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(h[:8])
+	return uuid.NewSHA1(scionNamespace, []byte(normalized)).String()
 }
