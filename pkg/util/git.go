@@ -373,11 +373,15 @@ func ExtractRepoName(remoteURL string) string {
 }
 
 // NormalizeGitRemote normalizes a git remote URL to a canonical form for consistent matching.
-// It removes protocols (https, http, ssh, git), handles SSH format (git@host:path),
-// removes the .git suffix, and lowercases the host portion.
+// It removes protocols (https, http, ssh, git), strips user info (credentials, tokens),
+// handles SSH format (git@host:path), removes the .git suffix, and lowercases the host.
+// This ensures the same repository produces the same normalized string regardless of
+// access method (SSH key, HTTPS token, plain HTTPS).
 // Examples:
 //   - https://github.com/org/repo.git -> github.com/org/repo
 //   - git@github.com:org/repo.git -> github.com/org/repo
+//   - https://x-access-token:TOKEN@github.com/org/repo.git -> github.com/org/repo
+//   - ssh://git@github.com/org/repo.git -> github.com/org/repo
 func NormalizeGitRemote(remote string) string {
 	if remote == "" {
 		return ""
@@ -392,10 +396,19 @@ func NormalizeGitRemote(remote string) string {
 	remote = strings.TrimPrefix(remote, "ssh://")
 	remote = strings.TrimPrefix(remote, "git://")
 
-	// Handle SSH format (git@host:path)
+	// Handle SSH shorthand format (git@host:path → host/path)
 	if strings.HasPrefix(remote, "git@") {
 		remote = strings.TrimPrefix(remote, "git@")
 		remote = strings.Replace(remote, ":", "/", 1)
+	}
+
+	// Strip user info (user@, user:pass@) for scheme-based URLs.
+	// This handles token-authenticated HTTPS URLs like x-access-token:TOKEN@github.com/...
+	if atIdx := strings.Index(remote, "@"); atIdx >= 0 {
+		slashIdx := strings.Index(remote, "/")
+		if slashIdx < 0 || atIdx < slashIdx {
+			remote = remote[atIdx+1:]
+		}
 	}
 
 	// Remove .git suffix

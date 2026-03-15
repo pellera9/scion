@@ -394,6 +394,63 @@ func TestExtractOrgRepo(t *testing.T) {
 	}
 }
 
+func TestNormalizeGitRemote(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty", "", ""},
+		{"https", "https://github.com/org/repo.git", "github.com/org/repo"},
+		{"ssh shorthand", "git@github.com:org/repo.git", "github.com/org/repo"},
+		{"ssh scheme", "ssh://git@github.com/org/repo.git", "github.com/org/repo"},
+		{"git scheme", "git://github.com/org/repo.git", "github.com/org/repo"},
+		{"http", "http://github.com/org/repo.git", "github.com/org/repo"},
+		{"https no .git", "https://github.com/org/repo", "github.com/org/repo"},
+		{"https token auth", "https://x-access-token:ghp_abc123@github.com/org/repo.git", "github.com/org/repo"},
+		{"https oauth", "https://user:x-oauth-basic@github.com/org/repo.git", "github.com/org/repo"},
+		{"https user only", "https://user@github.com/org/repo.git", "github.com/org/repo"},
+		{"uppercase host", "https://GitHub.COM/org/repo.git", "github.com/org/repo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeGitRemote(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeGitRemote(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeGitRemote_CrossProtocolConsistency(t *testing.T) {
+	// All of these refer to the same repository and must produce the same normalized form
+	// and therefore the same UUID5 grove ID.
+	variants := []string{
+		"git@github.com:ptone/gamegame.git",
+		"https://github.com/ptone/gamegame.git",
+		"ssh://git@github.com/ptone/gamegame.git",
+		"https://x-access-token:TOKEN@github.com/ptone/gamegame.git",
+		"git://github.com/ptone/gamegame.git",
+	}
+
+	want := "github.com/ptone/gamegame"
+	for _, url := range variants {
+		got := NormalizeGitRemote(url)
+		if got != want {
+			t.Errorf("NormalizeGitRemote(%q) = %q, want %q", url, got, want)
+		}
+	}
+
+	// All should produce the same UUID5
+	ids := make(map[string]bool)
+	for _, url := range variants {
+		ids[HashGroveID(NormalizeGitRemote(url))] = true
+	}
+	if len(ids) != 1 {
+		t.Errorf("expected all URL variants to produce the same UUID5, got %d distinct IDs", len(ids))
+	}
+}
+
 func TestHashGroveID(t *testing.T) {
 	// Determinism: same input → same output
 	id1 := HashGroveID("github.com/acme/widgets")
