@@ -55,6 +55,9 @@ const (
 	ScopeAgentNotify AgentTokenScope = "grove:agent:notify"
 	// ScopeAgentTokenRefresh allows the agent to refresh its own token before expiry.
 	ScopeAgentTokenRefresh AgentTokenScope = "agent:token:refresh"
+	// ScopeGCPTokenPrefix is the prefix for GCP token scopes.
+	// Full scope format: "grove:gcp:token:<sa-id>"
+	ScopeGCPTokenPrefix = "grove:gcp:token:"
 )
 
 // AgentTokenClaims represents the custom claims in an agent JWT.
@@ -219,6 +222,21 @@ func (c *AgentTokenClaims) HasScope(scope AgentTokenScope) bool {
 		}
 	}
 	return false
+}
+
+// HasScopePrefix checks if the claims include any scope that starts with the given prefix.
+func (c *AgentTokenClaims) HasScopePrefix(prefix string) bool {
+	for _, s := range c.Scopes {
+		if strings.HasPrefix(string(s), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// GCPTokenScopeForSA returns the full GCP token scope string for a given service account ID.
+func GCPTokenScopeForSA(saID string) AgentTokenScope {
+	return AgentTokenScope(ScopeGCPTokenPrefix + saID)
 }
 
 // generateTokenID generates a unique token ID.

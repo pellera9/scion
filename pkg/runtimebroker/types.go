@@ -257,6 +257,16 @@ type CreateAgentConfig struct {
 
 	// SharedDirs contains grove-level shared directory declarations.
 	SharedDirs []api.SharedDir `json:"sharedDirs,omitempty"`
+
+	// GCPIdentity holds the GCP identity assignment for the agent.
+	GCPIdentity *GCPIdentityConfig `json:"gcpIdentity,omitempty"`
+}
+
+// GCPIdentityConfig holds GCP identity configuration passed from Hub to Broker.
+type GCPIdentityConfig struct {
+	MetadataMode string `json:"metadata_mode"`           // "block", "passthrough", "assign"
+	SAEmail      string `json:"sa_email,omitempty"`      // Service account email
+	ProjectID    string `json:"project_id,omitempty"`    // GCP project ID
 }
 
 // CreateAgentResponse is the response for creating an agent.

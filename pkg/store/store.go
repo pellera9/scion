@@ -84,6 +84,9 @@ type Store interface {
 
 	// ScheduledEvent operations (One-Shot Timers)
 	ScheduledEventStore
+
+	// GCP Service Account operations (GCP Identity for Agents)
+	GCPServiceAccountStore
 }
 
 // AgentStore defines agent-related persistence operations.
@@ -776,4 +779,37 @@ type ScheduledEventStore interface {
 
 	// PurgeOldScheduledEvents removes non-pending events older than cutoff.
 	PurgeOldScheduledEvents(ctx context.Context, cutoff time.Time) (int, error)
+}
+
+// =============================================================================
+// GCP Service Accounts (GCP Identity for Agents)
+// =============================================================================
+
+// GCPServiceAccountStore defines GCP service account persistence operations.
+type GCPServiceAccountStore interface {
+	// CreateGCPServiceAccount registers a new GCP service account.
+	// Returns ErrAlreadyExists if a SA with the same email+scope+scopeID exists.
+	CreateGCPServiceAccount(ctx context.Context, sa *GCPServiceAccount) error
+
+	// GetGCPServiceAccount retrieves a GCP service account by ID.
+	// Returns ErrNotFound if the SA doesn't exist.
+	GetGCPServiceAccount(ctx context.Context, id string) (*GCPServiceAccount, error)
+
+	// UpdateGCPServiceAccount updates a GCP service account record.
+	// Returns ErrNotFound if the SA doesn't exist.
+	UpdateGCPServiceAccount(ctx context.Context, sa *GCPServiceAccount) error
+
+	// DeleteGCPServiceAccount removes a GCP service account by ID.
+	// Returns ErrNotFound if the SA doesn't exist.
+	DeleteGCPServiceAccount(ctx context.Context, id string) error
+
+	// ListGCPServiceAccounts returns GCP service accounts matching the filter.
+	ListGCPServiceAccounts(ctx context.Context, filter GCPServiceAccountFilter) ([]GCPServiceAccount, error)
+}
+
+// GCPServiceAccountFilter defines criteria for filtering GCP service accounts.
+type GCPServiceAccountFilter struct {
+	Scope   string // Filter by scope (hub, grove, user)
+	ScopeID string // Filter by scope ID
+	Email   string // Filter by SA email
 }

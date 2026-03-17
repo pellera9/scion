@@ -2830,6 +2830,18 @@ func (s *Server) handleGroveRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for nested /gcp-service-accounts path
+	if strings.HasPrefix(subPath, "gcp-service-accounts") {
+		saPath := strings.TrimPrefix(subPath, "gcp-service-accounts")
+		saPath = strings.TrimPrefix(saPath, "/")
+		if saPath == "" {
+			s.handleGroveGCPServiceAccounts(w, r, groveID)
+		} else {
+			s.handleGroveGCPServiceAccountByID(w, r, groveID, saPath)
+		}
+		return
+	}
+
 	// Check for nested /broadcast path (message broker broadcast)
 	if subPath == "broadcast" {
 		s.handleGroveBroadcast(w, r, groveID)

@@ -399,6 +399,9 @@ type Server struct {
 	// Channel registry for external notification delivery (nil = disabled)
 	channelRegistry *ChannelRegistry
 
+	// GCP token generator for agent identity (nil = GCP identity disabled)
+	gcpTokenGenerator GCPTokenGenerator
+
 	// Message broker proxy for pub/sub message routing (nil = disabled)
 	messageBrokerProxy *MessageBrokerProxy
 
@@ -847,6 +850,13 @@ func (s *Server) GetMaintenanceState() *MaintenanceState {
 }
 
 // SetEventPublisher sets the event publisher for real-time SSE updates.
+// SetGCPTokenGenerator sets the GCP token generator for agent identity.
+func (s *Server) SetGCPTokenGenerator(g GCPTokenGenerator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gcpTokenGenerator = g
+}
+
 func (s *Server) SetEventPublisher(ep EventPublisher) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1343,6 +1353,10 @@ func (s *Server) registerRoutes() {
 
 	// WebSocket control channel endpoint for Runtime Brokers
 	s.mux.HandleFunc("/api/v1/runtime-brokers/connect", s.handleRuntimeBrokerConnect)
+
+	// GCP identity endpoints (agent token auth)
+	s.mux.HandleFunc("/api/v1/agent/gcp-token", s.handleAgentGCPToken)
+	s.mux.HandleFunc("/api/v1/agent/gcp-identity-token", s.handleAgentGCPIdentityToken)
 
 	// Public settings endpoint (no auth required for telemetry default, etc.)
 	s.mux.HandleFunc("/api/v1/settings/public", s.handlePublicSettings)

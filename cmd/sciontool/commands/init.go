@@ -28,6 +28,7 @@ import (
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/hooks/handlers"
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/hub"
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/log"
+	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/metadata"
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/services"
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/supervisor"
 	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/telemetry"
@@ -272,6 +273,19 @@ func runInit(args []string) int {
 				log.Error("Failed to start services: %v", err)
 				// Continue — service failure shouldn't block harness
 			}
+		}
+	}
+
+	// Start GCP metadata server if configured
+	var metadataServer *metadata.Server
+	if metaCfg := metadata.ConfigFromEnv(); metaCfg != nil {
+		metadataServer = metadata.New(*metaCfg)
+		metaCtx := context.Background()
+		if err := metadataServer.Start(metaCtx); err != nil {
+			log.Error("Failed to start metadata server: %v", err)
+			// Continue — metadata failure shouldn't block harness
+		} else {
+			log.Info("GCP metadata server started (mode=%s, port=%d)", metaCfg.Mode, metaCfg.Port)
 		}
 	}
 
@@ -527,6 +541,12 @@ func runInit(args []string) int {
 			log.Error("Failed to report shutdown status to Hub: %v", err)
 		}
 		hubCancel()
+	}
+
+	// Stop metadata server
+	if metadataServer != nil {
+		metadataServer.Stop()
+		log.Info("GCP metadata server stopped")
 	}
 
 	// Stop sidecar services before session-end hooks

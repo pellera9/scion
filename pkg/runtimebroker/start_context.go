@@ -203,6 +203,20 @@ func (s *Server) buildStartContext(ctx context.Context, in startContextInputs) (
 		env["SCION_DEBUG"] = "1"
 	}
 
+	// 8. GCP identity metadata server configuration
+	if in.Config != nil && in.Config.GCPIdentity != nil {
+		gcpID := in.Config.GCPIdentity
+		if gcpID.MetadataMode == "assign" || gcpID.MetadataMode == "block" {
+			env["SCION_METADATA_MODE"] = gcpID.MetadataMode
+			env["SCION_METADATA_PORT"] = "18380"
+			if gcpID.MetadataMode == "assign" {
+				env["SCION_METADATA_SA_EMAIL"] = gcpID.SAEmail
+				env["SCION_METADATA_PROJECT_ID"] = gcpID.ProjectID
+			}
+			env["GCE_METADATA_HOST"] = "localhost:18380"
+		}
+	}
+
 	// Debug log final env
 	if s.config.Debug {
 		s.agentLifecycleLog.Debug("Final environment count", "agent_id", in.AgentID, "count", len(env))

@@ -122,6 +122,9 @@ type AgentAppliedConfig struct {
 	// or Hub API config field. When set, the dispatcher threads it through to the
 	// broker so it can apply the full configuration during agent provisioning.
 	InlineConfig *api.ScionConfig `json:"inlineConfig,omitempty"`
+
+	// GCPIdentity holds the GCP identity assignment for this agent.
+	GCPIdentity *GCPIdentityConfig `json:"gcpIdentity,omitempty"`
 }
 
 
@@ -835,6 +838,42 @@ type APIKey struct {
 const (
 	APIKeyPrefixLive = "sk_live_"
 	APIKeyPrefixTest = "sk_test_"
+)
+
+// =============================================================================
+// GCP Service Accounts (GCP Identity for Agents)
+// =============================================================================
+
+// GCPServiceAccount represents a GCP service account registered for use by agents.
+// No key material is stored — the Hub's own GCP identity impersonates the SA at
+// token-generation time via the IAM Credentials API.
+type GCPServiceAccount struct {
+	ID            string    `json:"id"`             // UUID
+	Scope         string    `json:"scope"`          // "hub", "grove", "user"
+	ScopeID       string    `json:"scope_id"`       // ID of the hub/grove/user
+	Email         string    `json:"email"`          // e.g. "agent-worker@project.iam.gserviceaccount.com"
+	ProjectID     string    `json:"project_id"`     // GCP project containing the SA
+	DisplayName   string    `json:"display_name"`   // Human-friendly label
+	DefaultScopes []string  `json:"default_scopes,omitempty"` // OAuth scopes (default: cloud-platform)
+	Verified      bool      `json:"verified"`       // Hub confirmed it can impersonate this SA
+	VerifiedAt    time.Time `json:"verified_at,omitempty"`
+	CreatedBy     string    `json:"created_by"`     // User who registered it
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// GCPIdentityConfig holds the GCP identity assignment for an agent.
+type GCPIdentityConfig struct {
+	MetadataMode        string `json:"metadata_mode"`                  // "block", "passthrough", "assign"
+	ServiceAccountID    string `json:"service_account_id,omitempty"`   // FK to GCPServiceAccount (required for "assign")
+	ServiceAccountEmail string `json:"service_account_email,omitempty"` // Denormalized for runtime use
+	ProjectID           string `json:"project_id,omitempty"`            // Denormalized
+}
+
+// GCPIdentity metadata mode constants.
+const (
+	GCPMetadataModeBlock       = "block"
+	GCPMetadataModePassthrough = "passthrough"
+	GCPMetadataModeAssign      = "assign"
 )
 
 // =============================================================================

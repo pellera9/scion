@@ -104,6 +104,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		migrationV27,
 		migrationV28,
 		migrationV29,
+		migrationV30,
 	}
 
 	// Create migrations table if not exists
@@ -698,6 +699,25 @@ const migrationV29 = `
 ALTER TABLE groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'explicit';
 ALTER TABLE groups ADD COLUMN grove_id TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_groups_grove ON groups(grove_id);
+`
+
+// Migration V30: Create gcp_service_accounts table for GCP identity management.
+const migrationV30 = `
+CREATE TABLE IF NOT EXISTS gcp_service_accounts (
+	id TEXT PRIMARY KEY,
+	scope TEXT NOT NULL,
+	scope_id TEXT NOT NULL,
+	email TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	display_name TEXT NOT NULL DEFAULT '',
+	default_scopes TEXT NOT NULL DEFAULT '',
+	verified INTEGER NOT NULL DEFAULT 0,
+	verified_at TIMESTAMP,
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(email, scope, scope_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gcp_sa_scope ON gcp_service_accounts(scope, scope_id);
 `
 
 // Helper functions for JSON marshaling/unmarshaling

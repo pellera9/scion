@@ -354,3 +354,55 @@ func TestGetAgentFromContext(t *testing.T) {
 		assert.Equal(t, claims, retrieved)
 	})
 }
+
+func TestHasScopePrefix(t *testing.T) {
+	claims := &AgentTokenClaims{
+		Scopes: []AgentTokenScope{
+			ScopeAgentStatusUpdate,
+			GCPTokenScopeForSA("sa-uuid-123"),
+		},
+	}
+
+	t.Run("matching prefix", func(t *testing.T) {
+		assert.True(t, claims.HasScopePrefix(ScopeGCPTokenPrefix))
+	})
+
+	t.Run("non-matching prefix", func(t *testing.T) {
+		assert.False(t, claims.HasScopePrefix("grove:gcp:wrong:"))
+	})
+
+	t.Run("exact scope match", func(t *testing.T) {
+		assert.True(t, claims.HasScope(GCPTokenScopeForSA("sa-uuid-123")))
+	})
+
+	t.Run("wrong SA ID", func(t *testing.T) {
+		assert.False(t, claims.HasScope(GCPTokenScopeForSA("sa-uuid-456")))
+	})
+}
+
+func TestGCPTokenScopeForSA(t *testing.T) {
+	scope := GCPTokenScopeForSA("my-sa-id")
+	assert.Equal(t, AgentTokenScope("grove:gcp:token:my-sa-id"), scope)
+}
+
+func TestGCPTokenScope_InToken(t *testing.T) {
+	service, err := NewAgentTokenService(AgentTokenConfig{
+		SigningKey:    make([]byte, 32),
+		TokenDuration: time.Hour,
+	})
+	require.NoError(t, err)
+
+	saID := "test-sa-uuid"
+	gcpScope := GCPTokenScopeForSA(saID)
+	scopes := []AgentTokenScope{ScopeAgentStatusUpdate, gcpScope}
+
+	token, err := service.GenerateAgentToken("agent-1", "grove-1", scopes)
+	require.NoError(t, err)
+
+	claims, err := service.ValidateAgentToken(token)
+	require.NoError(t, err)
+
+	assert.True(t, claims.HasScope(gcpScope))
+	assert.True(t, claims.HasScopePrefix(ScopeGCPTokenPrefix))
+	assert.False(t, claims.HasScope(GCPTokenScopeForSA("other-sa-uuid")))
+}
