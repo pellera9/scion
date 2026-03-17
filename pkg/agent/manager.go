@@ -87,6 +87,18 @@ func (m *AgentManager) Delete(ctx context.Context, agentID string, deleteFiles b
 	}
 
 	if containerExists {
+		// Stop the container gracefully before force-removing it. This ensures
+		// bind mounts (e.g. shared-dir volumes) are properly released before
+		// filesystem cleanup. Without this, docker rm -f / container kill sends
+		// SIGKILL which can leave mounts in a state that causes permission
+		// errors when DeleteAgentFiles tries to remove the agent directory.
+		util.Debugf("delete: stopping container %s before removal", targetID)
+		if err := m.Runtime.Stop(ctx, targetID); err != nil {
+			// Log but don't fail — the container may already be stopped,
+			// and Delete (force-remove) will handle it either way.
+			util.Debugf("delete: stop returned error (continuing): %v", err)
+		}
+
 		util.Debugf("delete: starting runtime delete for container %s", targetID)
 		if err := m.Runtime.Delete(ctx, targetID); err != nil {
 			return false, fmt.Errorf("failed to delete container: %w", err)
