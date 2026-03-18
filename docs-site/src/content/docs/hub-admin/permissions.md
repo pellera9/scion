@@ -95,7 +95,7 @@ The Scion Web Dashboard includes a centralized **Admin Management Suite** (acces
 
 - **Server Configuration Editor**: A full-featured settings editor at `/admin/server-config`. This allows administrators to view and modify the global `settings.yaml` through the Web UI with support for tabbed navigation, sensitive field masking, and hot-reloading of key settings like log levels, telemetry defaults, and admin emails.
 - **Users List**: View all authenticated users, search for specific accounts, track "Last Seen" timestamps, and manage their system-wide roles (e.g., granting `hub:admin` access).
-- **Groups Management**: Create organizational groups and manage their membership. This enables policy-based authorization where permissions can be granted to an entire team at once.
+- **Groups Management**: Create organizational groups and manage their membership with a human-friendly member editor and user search autocomplete. This enables policy-based authorization where permissions can be granted to an entire team at once, while strictly enforcing group ownership and authorization rules.
 - **Broker Visibility**: Comprehensive broker detail pages provide a grouped view of all active agents by their respective groves, helping administrators understand resource distribution.
 - **Maintenance Mode**: Administrators can toggle maintenance mode for the Hub and Web servers directly from the UI to facilitate safe infrastructure updates.
 

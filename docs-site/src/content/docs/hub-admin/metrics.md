@@ -178,6 +178,32 @@ When harness events occur (via hooks), sciontool automatically records the follo
 
 For every significant lifecycle event (session start/end, tool use, model call), sciontool emits an OTel log record that is automatically correlated with the active trace. This means when viewing a trace waterfall in your observability backend (like Google Cloud Trace), you can click directly through to the specific logs associated with each span.
 
+## Hub Infrastructure Metrics
+
+The Scion Hub maintains internal operational metrics for infrastructure monitoring. These are available via the `/api/v1/admin/metrics` endpoint (requires `hub:admin` role) and can be exported to standard monitoring tools.
+
+### GCP Token Metrics
+
+With the introduction of GCP Identity emulation, the Hub tracks the health and performance of the token brokering pipeline:
+
+| Metric | Description |
+|--------|-------------|
+| `accessTokenRequests` | Total number of GCP Access Token requests from agents. |
+| `accessTokenSuccesses` | Number of successfully brokered access tokens. |
+| `accessTokenFailures` | Number of failed access token requests (e.g., IAM permission errors). |
+| `idTokenRequests` | Total number of GCP Identity Token requests. |
+| `rateLimitRejections` | Number of token requests rejected due to per-agent rate limiting. |
+| `iamLatencyP50Ms` | Median latency of IAM API calls to Google Cloud. |
+| `iamLatencyP95Ms` | 95th percentile latency of IAM API calls. |
+
+### Broker Authentication Metrics
+
+Monitors the security and connectivity of Runtime Brokers:
+
+- `authAttempts`: Total broker authentication attempts.
+- `connectedBrokers`: Current number of active Runtime Brokers connected to the Hub.
+- `dispatchFailures`: Number of failed agent dispatch commands to brokers.
+
 ## Privacy Filtering
 
 By default, sciontool excludes `agent.user.prompt` events to protect user privacy. Filtering is configured via the `telemetry.filter` block in `settings.yaml` or `scion-agent.yaml`, or via environment variables.

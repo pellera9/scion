@@ -98,6 +98,7 @@ Lists all agents and their status.
 
 - **Flags:**
     - `-a, --all`: Show all agents (including stopped ones).
+    - `-r, --running`: Filter for active (running) agents.
 
 ### `scion delete` (or `rm`)
 
@@ -195,7 +196,9 @@ Manages agent templates.
 - `clone <src> <dest>`: Clone a template.
 - `delete <name>` (alias `rm`): Delete a template.
 - `import <source>`: Import agent definitions (from Claude/Gemini) as templates.
-- `update-default`: Update default templates from the binary.
+- `update-default`: Update the global default template with the latest from the binary.
+    - Flags:
+        - `--force`: Overwrite the existing default template if it already exists.
 - `sync [--all]`: Sync grove-level templates with the Hub. Use `--all` to sync all templates at once.
 - `status`: Show the sync status of templates relative to the Hub.
 

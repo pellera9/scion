@@ -131,6 +131,34 @@ Brokers never store agent secrets (like API keys) on disk.
 
 For details on configuring and managing secrets, see [Secret Management](/scion/hub-user/secrets/).
 
+## GCP Identity & Metadata Emulation
+
+Scion provides a native mechanism to assign Google Cloud Platform (GCP) identities to agents, even when running on non-GCP infrastructure. This is achieved through an in-process metadata server emulator within `sciontool` that intercepts requests to the standard GCE metadata IP (`169.254.169.254`).
+
+### Metadata Modes
+
+When creating an agent, you can configure its **GCP Identity Mode**:
+
+- **Block (Default)**: All requests to the metadata server are intercepted and return a 403 Forbidden. This ensures agents cannot "leak" the host's identity (e.g., when running on a GCE instance or GKE node).
+- **Assign**: Assigns a specific Google Service Account to the agent.
+  - The agent's `sciontool` sidecar intercepts requests to the metadata server.
+  - Token requests are proxied to the Scion Hub, which uses its own broad permissions to generate a short-lived access token for the requested Service Account (via the `iam.serviceAccounts.getAccessToken` permission).
+  - The token is then returned to the agent, allowing it to use standard GCP SDKs (Application Default Credentials) as that specific Service Account.
+- **Passthrough**: Requests are allowed to reach the actual host metadata server. Use with caution as this allows the agent to assume the identity of the underlying node.
+
+### Management UI
+
+Administrators can manage available Service Accounts through the **Service Accounts** section in the Admin dashboard. 
+- **Registration**: Register existing GCP Service Accounts by email.
+- **Validation**: Scion verifies that the Hub has the necessary permissions to act as the registered Service Account.
+- **Assignment**: Once registered, Service Accounts can be assigned to agents during the creation flow.
+
+### Security & Auditing
+
+- **Iptables Interception**: Scion uses `iptables` (when `NET_ADMIN` capability is available) to redirect traffic from `169.254.169.254:80` to the local sidecar.
+- **Rate Limiting**: Token requests are rate-limited per-agent to prevent abuse.
+- **Audit Logging**: All token issuance events are logged at the Hub level with the requesting `agent_id` and `user_id`.
+
 ## CLI Authentication
 
 Users can authenticate the CLI against a Scion Hub using the following flow:

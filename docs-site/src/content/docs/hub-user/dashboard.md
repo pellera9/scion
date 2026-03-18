@@ -34,6 +34,7 @@ Detailed view for individual agents, featuring a high-density tabbed layout and 
 - **Configuration Tab**: Dedicated tab for viewing the applied configuration of the agent, featuring a new telemetry configuration card.
 - **Debug Panel**: A full-height panel providing a real-time stream of SSE events and internal state transitions for advanced troubleshooting and observability.
 - **Terminal**: Interactive terminal access to the agent's workspace, featuring built-in Tmux support with a mouse toggle (`C-b m`), window switching controls (agent/shell), and a dedicated terminal toolbar.
+- **Workspace Content Previews**: Content preview capabilities for workspace files directly within the UI, allowing you to quickly inspect agent output and project data.
 - **Lifecycle Control**: Start, stop, restart, or delete agents from the UI. Includes bulk operations like the "Stop All" button for efficient bulk shutdown of all agents within a grove.
 
 ### Runtime Brokers
@@ -45,6 +46,7 @@ Monitor the infrastructure nodes where your agents are executing.
 Centralized views for managing the Scion infrastructure and access control (available to administrative users).
 - **Users**: View and manage user accounts and roles.
 - **Groups**: Create and manage organizational groups for policy-based authorization.
+- **Service Accounts**: Manage and validate registered Google Service Accounts for use with the metadata emulation pipeline.
 - **Brokers**: Comprehensive broker detail pages providing a grouped view of all active agents by their respective groves.
 - **Maintenance Mode**: Toggle maintenance mode for the Hub and Web servers to facilitate safe infrastructure updates.
 

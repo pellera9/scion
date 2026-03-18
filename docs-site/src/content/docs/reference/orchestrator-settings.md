@@ -35,6 +35,10 @@ Files without `schema_version` are treated as legacy format. Run `scion config m
 | `active_profile` | string | The name of the profile to use by default (e.g., `local`, `remote`). |
 | `default_template` | string | The default template to use when creating agents (e.g., `gemini`, `claude`). |
 | `image_registry` | string | Registry prefix for all standard harness images. Rewrites the registry portion of `scion-*` images (e.g., `ghcr.io/myorg`). See [Building Custom Images](/scion/advanced-local/custom-images/). |
+| `default_max_turns` | int | Default maximum number of turns an agent can take before termination. |
+| `default_max_model_calls` | int | Default maximum number of LLM model calls an agent can make. |
+| `default_max_duration` | string | Default maximum execution time (e.g., `"2h"`, `"45m"`) for an agent. |
+| `default_resources` | object | Default resource constraints (CPU, memory, disk). See [Resource Specification](#resource-specification-resources) below. |
 
 ## CLI Configuration (`cli`)
 
@@ -141,6 +145,26 @@ harness_configs:
 | `volumes` | list | Volume mounts. |
 | `auth_selected_type` | string | Authentication method selection (harness-specific). |
 | `secrets` | list | Required secrets for this harness configuration (see below). |
+| `resources` | object | Resource limits (CPU, memory, disk) for this harness. |
+
+### Resource Specification (`resources`)
+
+Defines the hardware constraints for an agent's execution environment.
+
+```yaml
+resources:
+  cpu: "2"
+  memory: "4Gi"
+  disk: "20Gi"
+  gpu: 0
+```
+
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cpu` | string | `"1"` | CPU cores (can be fractional, e.g., `"0.5"`). |
+| `memory` | string | `"2Gi"` | Memory limit (e.g., `"1Gi"`, `"512Mi"`). |
+| `disk` | string | `"10Gi"` | Ephemeral disk space request. |
+| `gpu` | int | `0` | Number of GPUs to request (requires compatible runtime). |
 
 ### Required Secrets
 

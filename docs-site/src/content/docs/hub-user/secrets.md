@@ -29,6 +29,24 @@ Both variables and secrets can be scoped to different levels. Scion resolves the
 **Resolution Priority:** When multiple scopes define the same secret key, the more specific scope wins. Broker scope has the highest priority, followed by Grove, then User, then Hub. Template `env` blocks and CLI `--env` flags are layered on top of resolved secrets.
 
 ---
+## Injection Modes
+
+Both environment variables and secrets support **Injection Modes**, which control how they are delivered to the agent container:
+
+- **As Needed (Default)**: The variable or secret is only injected if it is explicitly requested in the agent's template (`scion-agent.yaml`) or harness configuration. This is the recommended mode for most credentials to minimize the attack surface.
+- **Always**: The variable or secret is injected into *every* agent started within that scope, regardless of whether it is explicitly requested.
+
+You can set the injection mode via the CLI using the `--always` flag:
+
+```bash
+# Set a variable to be always injected in a grove
+scion hub env set --grove --always LOG_LEVEL=debug
+
+# Set a secret to be always injected for a user
+scion hub secret set --always MY_GLOBAL_TOKEN secret-value
+```
+
+---
 
 ## Managing Environment Variables
 
@@ -45,15 +63,6 @@ scion hub env set --grove LOG_LEVEL=debug
 # Set a variable only for a specific broker
 scion hub env set --broker=my-gpu-node CUDA_VISIBLE_DEVICES=0
 ```
-
-### Injection Modes
-- **As Needed (Default)**: The variable is only injected if it is explicitly requested in the agent's template (`scion-agent.yaml`).
-- **Always**: The variable is injected into *every* agent started within that scope.
-  ```bash
-  scion hub env set --always GLOBAL_TRACE_ID=scion-production
-  ```
-
----
 
 ## Managing Secrets
 
