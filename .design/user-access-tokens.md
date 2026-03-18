@@ -1,6 +1,6 @@
 # User Access Tokens
 
-**Status:** Draft
+**Status:** Approved
 **Date:** 2026-03-18
 **Related:** [auth-overview](.design/hosted/auth/auth-overview.md), [server-auth-setup](.design/hosted/auth/server-auth-setup.md), [sciontool-auth](.design/hosted/auth/sciontool-auth.md)
 
@@ -22,17 +22,17 @@ Users need to:
 |------|--------|----------|---------|----------|
 | User JWT | Hub-signed JWT | 15 min (web) / 30 days (CLI) | Full user access | Interactive sessions |
 | Agent JWT | Hub-signed JWT with claims | 10 hours | `grove_id` + `AgentTokenScope` list | Agent-to-Hub communication |
-| API Key | `sk_live_<base64>` | Configurable expiry | `[]string` scopes (unstructured) | Programmatic access (partially implemented) |
+| API Key | `sk_live_<base64>` | Configurable expiry | `[]string` scopes (unstructured) | Programmatic access (partially implemented, **never used — to be removed**) |
 | Dev Token | `scion_dev_<hex>` | None | Full dev-user access | Local development |
 
 ### Existing Infrastructure
 
 - **`SCION_HUB_TOKEN`**: Environment variable already consumed by CLI/hubclient for bearer auth
-- **`APIKeyService`** (`pkg/hub/apikey.go`): Full CRUD, SHA-256 hashed storage, revocation, expiry
-- **`APIKeyStore`** (`pkg/store/store.go`): SQLite-backed persistence for API keys
+- **`APIKeyService`** (`pkg/hub/apikey.go`): Full CRUD, SHA-256 hashed storage, revocation, expiry — **to be removed** (never used)
+- **`APIKeyStore`** (`pkg/store/store.go`): SQLite-backed persistence for API keys — **to be removed** (never used)
 - **`UnifiedAuthMiddleware`** (`pkg/hub/auth.go`): Already dispatches on token type/prefix
 - **`AuthzService`** (`pkg/hub/authz.go`): Policy-based authorization with actions (`create`, `read`, `update`, `delete`, `list`, `start`, `stop`, `message`, `attach`, `dispatch`, etc.) and resource types (`agent`, `grove`, `policy`, `group`)
-- **Hub API endpoints**: `GET/POST /api/v1/auth/api-keys`, `DELETE /api/v1/auth/api-keys/{id}`
+- **Hub API endpoints**: `GET/POST /api/v1/auth/api-keys`, `DELETE /api/v1/auth/api-keys/{id}` — **to be removed** with API key deprecation
 - **Web profile section**: Exists at `/profile` with nav for env vars, secrets, settings — but no token management UI yet
 
 ### Agent Token Scopes (for reference)
@@ -235,19 +235,24 @@ Add a **"Access Tokens"** page to the profile section:
 
 #### Phase 1: Backend (Store + Service + Auth)
 
-1. Add `UserAccessToken` model to `pkg/store/models.go`
-2. Add `UserAccessTokenStore` interface to `pkg/store/store.go`
-3. Implement SQLite storage in `pkg/store/sqlite/`
-4. Create `UserAccessTokenService` in `pkg/hub/useraccesstoken.go`
+1. **Remove legacy API key system**: Delete `APIKeyService` (`pkg/hub/apikey.go`), `APIKeyStore` interface and SQLite implementation, API key endpoints (`/api/v1/auth/api-keys`), and all related `sk_live_*` handling from `UnifiedAuthMiddleware`. These have never been used.
+2. Add `UserAccessToken` model to `pkg/store/models.go`
+3. Add `UserAccessTokenStore` interface to `pkg/store/store.go`
+4. Implement SQLite storage in `pkg/store/sqlite/`
+5. Create `UserAccessTokenService` in `pkg/hub/useraccesstoken.go`
    - `CreateToken(ctx, userID, name, groveID, scopes, expiresAt)` → (plaintext, *UserAccessToken, error)
    - `ValidateToken(ctx, token)` → (ScopedUserIdentity, error)
    - `ListTokens(ctx, userID)` → ([]UserAccessToken, error)
    - `RevokeToken(ctx, userID, tokenID)` → error
    - `DeleteToken(ctx, userID, tokenID)` → error
-5. Extend `UnifiedAuthMiddleware` to detect `scion_pat_` prefix and validate via the new service
-6. Introduce `ScopedUserIdentity` that wraps `UserIdentity` with grove/scope restrictions
-7. Augment `AuthzService.CheckAccess` to enforce grove + scope constraints when identity is scoped
-8. Register API handlers on the server router
+   - Enforce limit of **50 tokens per user**
+   - Enforce maximum expiry of **1 year**, default to **90 days** if not specified
+6. Extend `UnifiedAuthMiddleware` to detect `scion_pat_` prefix and validate via the new service
+7. **Enforce UAT-creates-UAT prevention at the middleware level**: Reject requests authenticated with `scion_pat_*` tokens on the `/api/v1/auth/tokens` creation endpoint
+8. Introduce `ScopedUserIdentity` that wraps `UserIdentity` with grove/scope restrictions
+9. Augment `AuthzService.CheckAccess` to enforce grove + scope constraints when identity is scoped
+10. **Add auth-type to request logging**: Include the authentication method (JWT, UAT, dev-token) in standard request log entries
+11. Register API handlers on the server router
 
 #### Phase 2: CLI Commands
 
@@ -276,7 +281,7 @@ Add a **"Access Tokens"** page to the profile section:
 - Existing API key consumers (if any) would need migration or compatibility handling.
 - Scopes on API keys are currently unstructured `[]string` with no validation or enforcement.
 
-**Verdict**: Rejected. The semantic mismatch and lack of grove-scoping in the existing model make this fragile. A clean model is worth the modest additional code.
+**Verdict**: Rejected. The semantic mismatch and lack of grove-scoping in the existing model make this fragile. A clean model is worth the modest additional code. Furthermore, the existing `sk_live_*` API key system has never been used and will be fully removed as part of this work (see Phase 1).
 
 ### B. Mint Long-Lived User JWTs
 
@@ -327,18 +332,18 @@ Add a **"Access Tokens"** page to the profile section:
 
 **Verdict**: Deferred. Could be a future enhancement for enterprises, but the PAT model is simpler and sufficient for the initial use case.
 
-## Open Questions
+## Resolved Decisions
 
-1. **Maximum token count per user**: Should we limit the number of active tokens per user? Suggested: 25 per user, configurable.
+1. **Maximum token count per user**: 50 tokens per user, configurable.
 
-2. **Maximum expiry duration**: Should we cap how far out `expiresAt` can be? GitHub caps at 1 year for fine-grained tokens. Suggested: 1 year max, with a default of 90 days if not specified.
+2. **Maximum expiry duration**: 1 year max, with a default of 90 days if not specified.
 
-3. **Token inheritance from API keys**: Should the existing `sk_live_` API keys be deprecated in favor of UATs, or should both coexist? API keys currently have no grove-scoping and no scope enforcement. Recommendation: keep both but mark API keys as "legacy" in docs; new integrations should use UATs.
+3. **Legacy API keys (`sk_live_*`)**: Fully deprecate and remove. The existing API key system (`APIKeyService`, `APIKeyStore`, related endpoints and middleware handling) has never been used and will be deleted as part of Phase 1. UATs are the sole non-JWT programmatic auth mechanism going forward.
 
-4. **Cross-grove tokens**: Some automation may need to operate across multiple groves. Should we support multiple `groveId` values, or require one token per grove? Suggested: start with single-grove scoping, add multi-grove later if needed.
+4. **Cross-grove tokens**: Single-grove scoping only. One token per grove; multi-grove support may be added later if needed.
 
-5. **Audit logging**: Should token usage be logged beyond `lastUsed` timestamp? CI/CD tokens are high-value audit targets. Suggested: log token prefix + action + grove for each authenticated request, defer full audit trail to a later phase.
+5. **Audit logging**: Include the auth-type (JWT, UAT, dev-token) in standard request log entries. No separate audit trail for now; `lastUsed` timestamp is updated on each use.
 
-6. **UAT-creates-UAT prevention**: The design states UATs cannot create other UATs. Should this be enforced at the scope level (no `token:create` scope) or at the middleware level (reject `scion_pat_*` auth on token endpoints)? Suggested: middleware-level check is simpler and more robust.
+6. **UAT-creates-UAT prevention**: Enforced at the middleware level. Requests authenticated with `scion_pat_*` tokens are rejected on the token creation endpoint.
 
-7. **Scope granularity evolution**: The current scope list is derived from `AuthzService` actions. As the authorization system matures (fine-grained policies, resource-level ACLs), how should token scopes evolve? Suggested: scopes remain coarse capability gates; the policy engine handles fine-grained decisions within those gates.
+7. **Scope granularity evolution**: Scopes remain coarse capability gates. The policy engine handles fine-grained decisions within those gates. Scopes can evolve as the authorization system matures.
