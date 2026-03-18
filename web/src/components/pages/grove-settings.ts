@@ -111,6 +111,9 @@ export class ScionPageGroveSettings extends LitElement {
   private settingsSuccess: string | null = null;
 
   @state()
+  private dropdownTemplates: Template[] = [];
+
+  @state()
   private harnessConfigs: HarnessConfigEntry[] = [];
 
   @state()
@@ -451,6 +454,7 @@ export class ScionPageGroveSettings extends LitElement {
     }
     void this.loadGrove().then(() => this.loadMembersGroup());
     void this.loadTemplates();
+    void this.loadDropdownTemplates();
     void this.loadSettings();
     void this.loadHarnessConfigs();
   }
@@ -495,6 +499,20 @@ export class ScionPageGroveSettings extends LitElement {
       console.error('Failed to load templates:', err);
     } finally {
       this.templatesLoading = false;
+    }
+  }
+
+  private async loadDropdownTemplates(): Promise<void> {
+    try {
+      const response = await apiFetch(
+        `/api/v1/templates?groveId=${encodeURIComponent(this.groveId)}&status=active`
+      );
+      if (response.ok) {
+        const data = (await response.json()) as { templates?: Template[] } | Template[];
+        this.dropdownTemplates = Array.isArray(data) ? data : data.templates || [];
+      }
+    } catch (err) {
+      console.error('Failed to load dropdown templates:', err);
     }
   }
 
@@ -859,7 +877,7 @@ export class ScionPageGroveSettings extends LitElement {
                 this.configDefaultTemplate = (e.target as HTMLSelectElement).value;
               }}
             >
-              ${this.templates.map(
+              ${this.dropdownTemplates.map(
                 (t) => html` <sl-option value=${t.name}>${t.displayName || t.name}</sl-option> `
               )}
             </sl-select>
@@ -879,14 +897,21 @@ export class ScionPageGroveSettings extends LitElement {
                 this.configDefaultHarnessConfig = (e.target as HTMLSelectElement).value;
               }}
             >
-              ${this.harnessConfigs.map(
-                (hc) => html`
-                  <sl-option value=${hc.name}>
-                    ${hc.displayName || hc.name}
-                    ${hc.harness ? html` <small>(${hc.harness})</small>` : ''}
-                  </sl-option>
-                `
-              )}
+              ${this.harnessConfigs.length > 0
+                ? this.harnessConfigs.map(
+                    (hc) => html`
+                      <sl-option value=${hc.name}>
+                        ${hc.displayName || hc.name}
+                        ${hc.harness ? html` <small>(${hc.harness})</small>` : ''}
+                      </sl-option>
+                    `
+                  )
+                : html`
+                    <sl-option value="gemini">Gemini</sl-option>
+                    <sl-option value="claude">Claude</sl-option>
+                    <sl-option value="opencode">OpenCode</sl-option>
+                    <sl-option value="codex">Codex</sl-option>
+                  `}
             </sl-select>
             <span class="field-help">Harness configuration used by default for new agents.</span>
           </div>

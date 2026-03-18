@@ -278,7 +278,7 @@ type TemplateFilter struct {
 	Name    string // Exact match on template name
 	Scope   string
 	ScopeID string
-	GroveID string // Deprecated: use ScopeID
+	GroveID string // When set without Scope, returns global + grove-scoped templates for this grove
 	Harness string
 	OwnerID string
 	Status  string

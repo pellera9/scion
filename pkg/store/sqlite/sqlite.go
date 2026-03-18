@@ -2154,8 +2154,12 @@ func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFi
 	if filter.ScopeID != "" {
 		conditions = append(conditions, "(scope_id = ? OR grove_id = ?)")
 		args = append(args, filter.ScopeID, filter.ScopeID)
+	} else if filter.GroveID != "" && filter.Scope == "" {
+		// When groveId is set without scope, return global + grove-scoped templates for this grove
+		conditions = append(conditions, "(scope = 'global' OR (scope = 'grove' AND (scope_id = ? OR grove_id = ?)))")
+		args = append(args, filter.GroveID, filter.GroveID)
 	} else if filter.GroveID != "" {
-		// Backwards compatibility
+		// Backwards compatibility: groveId with explicit scope
 		conditions = append(conditions, "(scope_id = ? OR grove_id = ?)")
 		args = append(args, filter.GroveID, filter.GroveID)
 	}

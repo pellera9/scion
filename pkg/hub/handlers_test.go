@@ -2005,6 +2005,72 @@ func TestTemplateList(t *testing.T) {
 	}
 }
 
+func TestTemplateListByGroveID(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create a global template
+	if err := s.CreateTemplate(ctx, &store.Template{
+		ID: "tmpl_global1", Slug: "global-tmpl", Name: "Global Template",
+		Harness: "claude", Scope: "global",
+		Visibility: store.VisibilityPublic, Status: "active",
+		Created: now, Updated: now,
+	}); err != nil {
+		t.Fatalf("failed to create global template: %v", err)
+	}
+
+	// Create a grove-scoped template for grove "grove_abc"
+	if err := s.CreateTemplate(ctx, &store.Template{
+		ID: "tmpl_grove1", Slug: "grove-tmpl", Name: "Grove Template",
+		Harness: "gemini", Scope: "grove", ScopeID: "grove_abc",
+		Visibility: store.VisibilityPublic, Status: "active",
+		Created: now, Updated: now,
+	}); err != nil {
+		t.Fatalf("failed to create grove template: %v", err)
+	}
+
+	// Create a grove-scoped template for a different grove
+	if err := s.CreateTemplate(ctx, &store.Template{
+		ID: "tmpl_grove2", Slug: "other-grove-tmpl", Name: "Other Grove Template",
+		Harness: "claude", Scope: "grove", ScopeID: "grove_xyz",
+		Visibility: store.VisibilityPublic, Status: "active",
+		Created: now, Updated: now,
+	}); err != nil {
+		t.Fatalf("failed to create other grove template: %v", err)
+	}
+
+	// Query with groveId=grove_abc should return global + grove_abc templates only
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/templates?groveId=grove_abc", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ListTemplatesResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.TotalCount != 2 {
+		t.Errorf("expected 2 templates (global + grove_abc), got %d", resp.TotalCount)
+	}
+
+	// Verify we got the right templates
+	ids := map[string]bool{}
+	for _, tmpl := range resp.Templates {
+		ids[tmpl.ID] = true
+	}
+	if !ids["tmpl_global1"] {
+		t.Error("expected global template in results")
+	}
+	if !ids["tmpl_grove1"] {
+		t.Error("expected grove_abc template in results")
+	}
+	if ids["tmpl_grove2"] {
+		t.Error("did not expect grove_xyz template in results")
+	}
+}
+
 func TestTemplateCreate(t *testing.T) {
 	srv, _ := testServer(t)
 
