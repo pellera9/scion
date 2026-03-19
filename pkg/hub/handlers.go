@@ -2255,6 +2255,37 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 		Slug:            query.Get("slug"),
 	}
 
+	// mine=true: restrict to groves the current user owns or is a member of
+	if query.Get("mine") == "true" {
+		if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+			filter.OwnerID = userIdent.ID()
+			// Find grove IDs from the user's group memberships
+			if memberships, err := s.store.GetUserGroups(ctx, userIdent.ID()); err == nil {
+				groupIDs := make([]string, 0, len(memberships))
+				for _, m := range memberships {
+					groupIDs = append(groupIDs, m.GroupID)
+				}
+				if len(groupIDs) > 0 {
+					if groups, err := s.store.GetGroupsByIDs(ctx, groupIDs); err == nil {
+						groveIDSet := make(map[string]struct{})
+						for _, g := range groups {
+							if g.GroveID != "" {
+								groveIDSet[g.GroveID] = struct{}{}
+							}
+						}
+						groveIDs := make([]string, 0, len(groveIDSet))
+						for id := range groveIDSet {
+							groveIDs = append(groveIDs, id)
+						}
+						if len(groveIDs) > 0 {
+							filter.MemberOrOwnerIDs = groveIDs
+						}
+					}
+				}
+			}
+		}
+	}
+
 	limit := 50
 	if l := query.Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {

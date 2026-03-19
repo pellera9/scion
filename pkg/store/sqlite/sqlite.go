@@ -1761,7 +1761,20 @@ func (s *SQLiteStore) ListGroves(ctx context.Context, filter store.GroveFilter, 
 	var conditions []string
 	var args []interface{}
 
-	if filter.OwnerID != "" {
+	if len(filter.MemberOrOwnerIDs) > 0 {
+		// Combine owner_id match with grove ID membership using OR
+		placeholders := make([]string, len(filter.MemberOrOwnerIDs))
+		for i, id := range filter.MemberOrOwnerIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		orParts := []string{"id IN (" + strings.Join(placeholders, ",") + ")"}
+		if filter.OwnerID != "" {
+			orParts = append(orParts, "owner_id = ?")
+			args = append(args, filter.OwnerID)
+		}
+		conditions = append(conditions, "("+strings.Join(orParts, " OR ")+")")
+	} else if filter.OwnerID != "" {
 		conditions = append(conditions, "owner_id = ?")
 		args = append(args, filter.OwnerID)
 	}

@@ -184,7 +184,8 @@ export class ScionPageGroves extends LitElement {
     this.error = null;
 
     try {
-      const response = await apiFetch('/api/v1/groves');
+      const url = this.showMineOnly ? '/api/v1/groves?mine=true' : '/api/v1/groves';
+      const response = await apiFetch(url);
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
@@ -216,12 +217,7 @@ export class ScionPageGroves extends LitElement {
 
   private toggleMineOnly(): void {
     this.showMineOnly = !this.showMineOnly;
-  }
-
-  private get filteredGroves(): Grove[] {
-    if (!this.showMineOnly || !this.pageData?.user) return this.groves;
-    const userId = this.pageData.user.id;
-    return this.groves.filter((g) => g.ownerId === userId);
+    void this.loadGroves();
   }
 
   override render() {
@@ -287,21 +283,19 @@ export class ScionPageGroves extends LitElement {
 
   private renderGroves() {
     if (this.groves.length === 0) {
+      if (this.showMineOnly) {
+        return html`
+          <div class="empty-state">
+            <sl-icon name="person"></sl-icon>
+            <h2>No Groves Found</h2>
+            <p>You don't own or belong to any groves yet.</p>
+          </div>
+        `;
+      }
       return this.renderEmptyState();
     }
 
-    const groves = this.filteredGroves;
-    if (groves.length === 0) {
-      return html`
-        <div class="empty-state">
-          <sl-icon name="person"></sl-icon>
-          <h2>No Groves Found</h2>
-          <p>You don't own any groves yet.</p>
-        </div>
-      `;
-    }
-
-    return this.viewMode === 'grid' ? this.renderGrid(groves) : this.renderTable(groves);
+    return this.viewMode === 'grid' ? this.renderGrid(this.groves) : this.renderTable(this.groves);
   }
 
   private renderEmptyState() {
