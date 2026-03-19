@@ -13,7 +13,7 @@ CONTAINER_ARCH := $(shell if [ "$$(uname -m)" = "x86_64" ]; then echo amd64; els
 
 .DEFAULT_GOAL := help
 
-.PHONY: all build install test test-fast vet lint web web-typecheck fmt-check ci clean help container-sciontool container-scion container-binaries
+.PHONY: all build install test test-fast vet lint web web-typecheck fmt ci clean help container-sciontool container-scion container-binaries
 
 ## all: Build the web frontend, then compile the Go binary with embedded assets
 all: web install
@@ -86,20 +86,14 @@ web-typecheck:
 	@cd web && npm run typecheck
 	@echo "Type check passed."
 
-## fmt-check: Check Go formatting (warn only)
-fmt-check:
-	@echo "Checking Go formatting..."
-	@UNFORMATTED=$$(gofmt -l .); \
-	if [ -n "$$UNFORMATTED" ]; then \
-		echo "WARNING: Go formatting issues found in:"; \
-		echo "$$UNFORMATTED"; \
-		echo "(Run 'gofmt -w .' to fix)"; \
-	else \
-		echo "Go formatting OK."; \
-	fi
+## fmt: Auto-format Go source files
+fmt:
+	@echo "Formatting Go source files..."
+	@gofmt -w .
+	@echo "Go formatting done."
 
 ## ci: Run the full CI pipeline locally (mirrors GitHub Actions)
-ci: web web-typecheck fmt-check lint test-fast build
+ci: fmt web web-typecheck lint test-fast build
 	@echo ""
 	@echo "CI passed."
 

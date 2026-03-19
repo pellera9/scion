@@ -54,15 +54,11 @@ jobs:
         working-directory: ./web
         run: npm run typecheck
 
-      # Temporarily skipping strict gofmt enforcement due to existing unformatted files.
-      # TODO: Fix formatting globally and remove `continue-on-error: true`.
-      - name: Format Check (Warn Only)
-        continue-on-error: true
+      - name: Format Check
         run: |
           UNFORMATTED=$(gofmt -l .)
           if [ -n "$UNFORMATTED" ]; then
-            echo "::warning::Go formatting issues found. See the list of files below."
-            echo "The following files need formatting:"
+            echo "::error::Go formatting issues found. Run 'gofmt -w .' or 'make fmt' to fix."
             echo "$UNFORMATTED"
             exit 1
           fi
