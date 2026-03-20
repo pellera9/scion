@@ -371,6 +371,58 @@ func TestBuildAuthenticatedURL_SpecialCharsInToken(t *testing.T) {
 	}
 }
 
+func TestDetectDefaultBranch(t *testing.T) {
+	// Create a bare repo to serve as the "remote"
+	remote := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = remote
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %s %v", args, out, err)
+		}
+	}
+	run("init", "--bare", ".")
+	// The bare repo's HEAD points to master by default in older git versions,
+	// or main in newer ones. Set it explicitly for a deterministic test.
+	run("symbolic-ref", "HEAD", "refs/heads/testbranch")
+
+	// Create a local repo that has this bare repo as origin
+	local := t.TempDir()
+	localRun := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = local
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %s %v", args, out, err)
+		}
+	}
+	localRun("init", ".")
+	localRun("remote", "add", "origin", remote)
+
+	// We need at least one commit in the remote for ls-remote to work
+	// Create a commit directly in the bare repo
+	tmpWork := t.TempDir()
+	cloneRun := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmpWork
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %s %v", args, out, err)
+		}
+	}
+	cloneRun("clone", remote, ".")
+	cloneRun("checkout", "-b", "testbranch")
+	cloneRun("commit", "--allow-empty", "-m", "init")
+	cloneRun("push", "origin", "testbranch")
+
+	noop := func(cmd *exec.Cmd) {}
+	result := detectDefaultBranch(local, noop)
+	if result != "testbranch" {
+		t.Errorf("expected 'testbranch', got %q", result)
+	}
+}
+
 func TestSanitizeGitOutput_LongToken(t *testing.T) {
 	// Fine-grained GitHub PATs are 93 characters long
 	longToken := "github_pat_" + strings.Repeat("A", 82) // 93 chars total

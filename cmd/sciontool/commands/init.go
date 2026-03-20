@@ -999,10 +999,27 @@ func gitCloneWorkspace(uid, gid int) error {
 	if clonedBranch == "" {
 		log.Info("Fetching repository %s (branch: %s, depth: %s)", normalizedURL, branch, depthStr)
 		errOutput, ok := fetchBranch(branch)
-		if !ok {
+		if ok {
+			clonedBranch = branch
+		} else if isAuthError(errOutput) {
 			return formatCloneError(errOutput, token)
+		} else {
+			// The configured branch doesn't exist. Try to detect the
+			// remote's default branch via ls-remote and fetch that instead.
+			log.Info("Branch %s not found, detecting default branch from remote", branch)
+			detected := detectDefaultBranch(workspacePath, setupGitCmd)
+			if detected != "" && detected != branch {
+				log.Info("Detected default branch: %s", detected)
+				errOutput2, ok2 := fetchBranch(detected)
+				if ok2 {
+					clonedBranch = detected
+				} else {
+					return formatCloneError(errOutput2, token)
+				}
+			} else {
+				return formatCloneError(errOutput, token)
+			}
 		}
-		clonedBranch = branch
 	}
 
 	// Check out the fetched branch to populate the working tree.
@@ -1113,6 +1130,28 @@ func formatCloneError(sanitizedStderr, token string) error {
 		return fmt.Errorf("git clone failed (no GITHUB_TOKEN secret configured — the repository may require authentication): %s", sanitizedStderr)
 	}
 	return fmt.Errorf("git clone failed (GITHUB_TOKEN may be invalid or lack Contents read access): %s", sanitizedStderr)
+}
+
+// detectDefaultBranch uses `git ls-remote --symref origin HEAD` to discover
+// the remote's default branch. Returns the branch name (e.g. "master") or ""
+// if detection fails.
+func detectDefaultBranch(workspacePath string, setupGitCmd func(*exec.Cmd)) string {
+	cmd := exec.Command("git", "-C", workspacePath, "ls-remote", "--symref", "origin", "HEAD")
+	setupGitCmd(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	// Output format: "ref: refs/heads/master\tHEAD\n..."
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ref: refs/heads/") {
+			// Split on tab to separate "ref: refs/heads/branch" from "HEAD"
+			ref := strings.SplitN(line, "\t", 2)[0]
+			return strings.TrimPrefix(ref, "ref: refs/heads/")
+		}
+	}
+	return ""
 }
 
 // sanitizeGitOutput replaces any occurrence of the token in git output with "***".
