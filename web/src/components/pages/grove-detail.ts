@@ -1364,7 +1364,6 @@ export class ScionPageGroveDetail extends LitElement {
 
   private renderFilesSection() {
     const tabs = this.getFileTabs();
-    const showTabs = tabs.length > 1;
     const tabData = this.getTabData(this.activeFileTab);
 
     return html`
@@ -1379,40 +1378,30 @@ export class ScionPageGroveDetail extends LitElement {
                 : ''}
             </span>
           </div>
-          ${!showTabs
-            ? html`<div style="display: flex; gap: 0.5rem; align-items: center;">
-                ${this.renderProviderWarning(tabData)}
-                ${this.renderFileActions()}
-              </div>`
-            : nothing}
         </div>
 
-        ${showTabs
-          ? html`
-              <div class="files-tab-header">
-                <sl-tab-group class="files-tab-group" @sl-tab-show=${this.onFileTabChange}>
-                  ${tabs.map(
-                    (tab) => html`
-                      <sl-tab slot="nav" panel=${tab.key} ?active=${tab.key === this.activeFileTab}>
-                        <span class="tab-label-truncated" title=${tab.label}>${this.truncateTabLabel(tab.label)}</span>
-                      </sl-tab>
-                    `
-                  )}
-                  ${tabs.map(
-                    (tab) => html`
-                      <sl-tab-panel name=${tab.key}
-                        >${this.renderFileTabContent(this.getTabData(tab.key))}</sl-tab-panel
-                      >
-                    `
-                  )}
-                </sl-tab-group>
-                <div class="files-tab-actions">
-                  ${this.renderProviderWarning(tabData)}
-                  ${this.renderFileActions()}
-                </div>
-              </div>
-            `
-          : this.renderFileTabContent(tabData)}
+        <div class="files-tab-header">
+          <sl-tab-group class="files-tab-group" @sl-tab-show=${this.onFileTabChange}>
+            ${tabs.map(
+              (tab) => html`
+                <sl-tab slot="nav" panel=${tab.key} ?active=${tab.key === this.activeFileTab}>
+                  <span class="tab-label-truncated" title=${tab.label}>${this.truncateTabLabel(tab.label)}</span>
+                </sl-tab>
+              `
+            )}
+            ${tabs.map(
+              (tab) => html`
+                <sl-tab-panel name=${tab.key}
+                  >${this.renderFileTabContent(this.getTabData(tab.key))}</sl-tab-panel
+                >
+              `
+            )}
+          </sl-tab-group>
+          <div class="files-tab-actions">
+            ${this.renderProviderWarning(tabData)}
+            ${this.renderFileActions()}
+          </div>
+        </div>
       </div>
     `;
   }
