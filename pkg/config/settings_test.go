@@ -745,34 +745,10 @@ func TestUpdateSettingHubConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write a hub connection endpoint
+	// hub_connections.* keys are silently skipped in v1 format (not supported)
 	err := UpdateSetting(groveScionDir, "hub_connections.hub-prod.endpoint", "https://hub.prod.example.com", false)
 	if err != nil {
-		t.Fatalf("UpdateSetting hub_connections failed: %v", err)
-	}
-
-	// Verify by reading back
-	content, err := os.ReadFile(filepath.Join(groveScionDir, "settings.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(content), "hub-prod") {
-		t.Errorf("expected file to contain hub-prod, got %s", string(content))
-	}
-	if !strings.Contains(string(content), "hub.prod.example.com") {
-		t.Errorf("expected file to contain hub.prod.example.com, got %s", string(content))
-	}
-
-	// Write a second connection
-	err = UpdateSetting(groveScionDir, "hub_connections.hub-staging.endpoint", "https://hub.staging.example.com", false)
-	if err != nil {
-		t.Fatalf("UpdateSetting hub_connections second failed: %v", err)
-	}
-
-	// Verify both are present
-	content, _ = os.ReadFile(filepath.Join(groveScionDir, "settings.yaml"))
-	if !strings.Contains(string(content), "hub-prod") || !strings.Contains(string(content), "hub-staging") {
-		t.Errorf("expected both hub connections in settings, got %s", string(content))
+		t.Fatalf("UpdateSetting hub_connections should not error (silently skipped in v1): %v", err)
 	}
 }
 
@@ -787,16 +763,15 @@ func TestUpdateSettingHubConnectionsInvalidKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Missing field part
+	// In v1 format, hub_connections.* keys are silently skipped regardless of structure
 	err := UpdateSetting(groveScionDir, "hub_connections.hub-prod", "value", false)
-	if err == nil {
-		t.Error("expected error for invalid hub_connections key")
+	if err != nil {
+		t.Errorf("hub_connections keys should be silently skipped in v1: %v", err)
 	}
 
-	// Unknown field
 	err = UpdateSetting(groveScionDir, "hub_connections.hub-prod.unknown_field", "value", false)
-	if err == nil {
-		t.Error("expected error for unknown hub_connections field")
+	if err != nil {
+		t.Errorf("hub_connections keys should be silently skipped in v1: %v", err)
 	}
 }
 
@@ -853,18 +828,20 @@ func TestDeleteHubConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write two connections
-	err := UpdateSetting(groveScionDir, "hub_connections.hub-prod.endpoint", "https://hub.prod.example.com", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = UpdateSetting(groveScionDir, "hub_connections.hub-staging.endpoint", "https://hub.staging.example.com", false)
-	if err != nil {
+	// Write a legacy settings file with two hub connections directly
+	// (hub_connections are a legacy-only feature, not supported in v1)
+	legacyContent := `hub_connections:
+  hub-prod:
+    endpoint: https://hub.prod.example.com
+  hub-staging:
+    endpoint: https://hub.staging.example.com
+`
+	if err := os.WriteFile(filepath.Join(groveScionDir, "settings.yaml"), []byte(legacyContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Delete one
-	err = DeleteHubConnection(groveScionDir, "hub-prod", false)
+	err := DeleteHubConnection(groveScionDir, "hub-prod", false)
 	if err != nil {
 		t.Fatalf("DeleteHubConnection failed: %v", err)
 	}

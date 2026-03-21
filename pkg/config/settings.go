@@ -551,7 +551,6 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 
 	// Find existing settings file (YAML or JSON)
 	existingPath := GetSettingsPath(dir)
-	targetPath := filepath.Join(dir, "settings.yaml")
 
 	// Check if the existing file is in v1 versioned format
 	if existingPath != "" {
@@ -561,8 +560,25 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 				// Delegate to versioned handler to preserve v1 format
 				return UpdateVersionedSetting(dir, key, value)
 			}
+			// Legacy format detected — auto-migrate to v1 before updating
+			fmt.Fprintf(os.Stderr, "Warning: settings file %s uses legacy format. Auto-migrating to v1 schema.\n", existingPath)
+			fmt.Fprintf(os.Stderr, "  You can also run 'scion config migrate' to migrate manually.\n")
+			if _, err := MigrateSettingsFile(dir, false); err != nil {
+				return fmt.Errorf("auto-migration of legacy settings failed: %w\n  Run 'scion config migrate' to migrate manually", err)
+			}
+			return UpdateVersionedSetting(dir, key, value)
 		}
 	}
+
+	// No existing file — create a new v1 settings file via the versioned handler
+	return UpdateVersionedSetting(dir, key, value)
+}
+
+// updateSettingLegacy is the old legacy settings update path, retained only for reference.
+// All settings updates now go through UpdateVersionedSetting after auto-migration.
+func updateSettingLegacy(dir string, key string, value string) error {
+	existingPath := GetSettingsPath(dir)
+	targetPath := filepath.Join(dir, "settings.yaml")
 
 	// Legacy path: load existing file specifically (not merged)
 	var current Settings

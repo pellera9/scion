@@ -2796,7 +2796,7 @@ hub:
 	assert.Equal(t, "gemini", vs.DefaultTemplate)
 }
 
-func TestUpdateSetting_LegacyFormatStillWorks(t *testing.T) {
+func TestUpdateSetting_LegacyFormatAutoMigrates(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	originalHome := os.Getenv("HOME")
@@ -2814,19 +2814,22 @@ hub:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(groveDir, "settings.yaml"), []byte(legacyContent), 0644))
 
-	// UpdateSetting should use legacy path
+	// UpdateSetting should auto-migrate legacy to v1 and apply the update
 	err := UpdateSetting(groveDir, "grove_id", "my-grove-id", false)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(groveDir, "settings.yaml"))
 	require.NoError(t, err)
 
-	// Should remain legacy format (no schema_version)
+	// Should now be v1 format after auto-migration
 	version, _ := DetectSettingsFormat(data)
-	assert.Empty(t, version, "legacy file should remain legacy after UpdateSetting")
+	assert.Equal(t, "1", version, "legacy file should be migrated to v1 after UpdateSetting")
 
-	// Verify the update
+	// Verify the update was applied
 	assert.Contains(t, string(data), "grove_id: my-grove-id")
+
+	// Verify original values were preserved
+	assert.Contains(t, string(data), "active_profile: local")
 }
 
 func TestLoadSingleFileVersioned_Basic(t *testing.T) {

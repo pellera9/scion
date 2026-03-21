@@ -1537,6 +1537,8 @@ func UpdateVersionedSetting(dir string, key string, value string) error {
 		vs.DefaultTemplate = value
 	case "default_harness_config":
 		vs.DefaultHarnessConfig = value
+	case "workspace_path":
+		vs.WorkspacePath = value
 	case "image_registry":
 		vs.ImageRegistry = value
 	case "cli.autohelp":
@@ -1640,6 +1642,8 @@ func GetVersionedSettingValue(vs *VersionedSettings, key string) (string, error)
 		return vs.DefaultTemplate, nil
 	case "default_harness_config":
 		return vs.DefaultHarnessConfig, nil
+	case "workspace_path":
+		return vs.WorkspacePath, nil
 	case "image_registry":
 		return vs.ImageRegistry, nil
 	case "cli.autohelp":
