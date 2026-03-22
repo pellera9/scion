@@ -171,6 +171,43 @@ func TestGroveSettings_ClearDefaultLimits(t *testing.T) {
 	assert.Nil(t, resp.DefaultResources)
 }
 
+func TestApplyGroveDefaults_HarnessConfig(t *testing.T) {
+	t.Run("applies default harness config when empty", func(t *testing.T) {
+		grove := &store.Grove{
+			Annotations: map[string]string{
+				"scion.io/default-harness-config": "claude-default",
+			},
+		}
+		ac := &store.AgentAppliedConfig{}
+		applyGroveDefaults(ac, grove)
+		assert.Equal(t, "claude-default", ac.HarnessConfig)
+	})
+
+	t.Run("does not override explicit harness config", func(t *testing.T) {
+		grove := &store.Grove{
+			Annotations: map[string]string{
+				"scion.io/default-harness-config": "claude-default",
+			},
+		}
+		ac := &store.AgentAppliedConfig{HarnessConfig: "custom-config"}
+		applyGroveDefaults(ac, grove)
+		assert.Equal(t, "custom-config", ac.HarnessConfig)
+	})
+
+	t.Run("nil grove is safe", func(t *testing.T) {
+		ac := &store.AgentAppliedConfig{}
+		applyGroveDefaults(ac, nil)
+		assert.Empty(t, ac.HarnessConfig)
+	})
+
+	t.Run("nil annotations is safe", func(t *testing.T) {
+		grove := &store.Grove{}
+		ac := &store.AgentAppliedConfig{}
+		applyGroveDefaults(ac, grove)
+		assert.Empty(t, ac.HarnessConfig)
+	})
+}
+
 func TestGroveSettings_NotFound(t *testing.T) {
 	srv, _ := testServer(t)
 

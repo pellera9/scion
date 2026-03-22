@@ -244,17 +244,22 @@ func setOrDelete(m map[string]string, key, value string) {
 	}
 }
 
-// applyGroveDefaultLimits applies grove-level default limits to the agent's
-// InlineConfig. Only fills in values that are not already set (0 or empty),
-// so explicit agent/template-level values are preserved.
-func applyGroveDefaultLimits(ac *store.AgentAppliedConfig, grove *store.Grove) {
+// applyGroveDefaults applies grove-level defaults from annotations to the agent's
+// AppliedConfig and InlineConfig. Only fills in values that are not already set
+// (0 or empty), so explicit agent/template-level values are preserved.
+func applyGroveDefaults(ac *store.AgentAppliedConfig, grove *store.Grove) {
 	if ac == nil || grove == nil || grove.Annotations == nil {
 		return
 	}
 
 	settings := groveSettingsFromAnnotations(grove)
 
-	// Check if there are any grove defaults to apply
+	// Apply default harness config (only if not already set)
+	if ac.HarnessConfig == "" && settings.DefaultHarnessConfig != "" {
+		ac.HarnessConfig = settings.DefaultHarnessConfig
+	}
+
+	// Check if there are any grove limit/resource defaults to apply
 	hasLimits := settings.DefaultMaxTurns > 0 || settings.DefaultMaxModelCalls > 0 || settings.DefaultMaxDuration != ""
 	hasResources := settings.DefaultResources != nil
 	if !hasLimits && !hasResources {

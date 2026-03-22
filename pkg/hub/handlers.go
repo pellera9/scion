@@ -544,6 +544,13 @@ func (s *Server) createAgentInGrove(
 		// No existing agent (or unhandled status) — fall through to create.
 	}
 
+	// Apply grove-level default template if no template specified in request
+	if req.Template == "" && grove != nil && grove.Annotations != nil {
+		if dt := grove.Annotations[groveSettingDefaultTemplate]; dt != "" {
+			req.Template = dt
+		}
+	}
+
 	// Resolve template if specified - the client may pass either a template ID or name
 	var resolvedTemplate *store.Template
 	if req.Template != "" {
@@ -626,8 +633,8 @@ func (s *Server) createAgentInGrove(
 		agent.Detached = true
 	}
 
-	// Apply grove-level default limits to inline config (lower priority than explicit values)
-	applyGroveDefaultLimits(agent.AppliedConfig, grove)
+	// Apply grove-level defaults (harness config, limits, resources) from annotations
+	applyGroveDefaults(agent.AppliedConfig, grove)
 
 	s.populateAgentConfig(agent, grove, resolvedTemplate)
 

@@ -1299,6 +1299,14 @@ func (s *Server) dispatchAgentEventHandler() EventHandler {
 			agent.AppliedConfig.Branch = payload.Branch
 		}
 
+		// Apply grove-level default template if none specified
+		if payload.Template == "" && grove != nil && grove.Annotations != nil {
+			if dt := grove.Annotations[groveSettingDefaultTemplate]; dt != "" {
+				payload.Template = dt
+				agent.Template = dt
+			}
+		}
+
 		// Resolve template if specified
 		if payload.Template != "" {
 			tmpl, tmplErr := s.resolveTemplate(ctx, payload.Template, evt.GroveID)
@@ -1312,6 +1320,9 @@ func (s *Server) dispatchAgentEventHandler() EventHandler {
 				}
 			}
 		}
+
+		// Apply grove-level defaults (harness config, limits, resources) from annotations
+		applyGroveDefaults(agent.AppliedConfig, grove)
 
 		s.populateAgentConfig(agent, grove, nil)
 
