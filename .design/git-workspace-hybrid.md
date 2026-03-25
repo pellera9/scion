@@ -500,14 +500,15 @@ The branch name field on the new-agent form adapts its default based on workspac
 3. ✅ Update `handleGroveWorkspace` to allow file operations on shared-workspace groves.
 4. ✅ Update `POST /api/v1/groves` handler to accept and store hybrid grove configuration.
 
-### Phase 2: Host-Side Clone Infrastructure
+### Phase 2: Host-Side Clone Infrastructure ✅ Completed
 
-1. Implement host-side git clone in the grove creation handler:
-   - Create workspace directory.
-   - Run `git clone` with token auth.
-   - Configure git identity.
-   - On failure: clean up directory, fail creation.
-2. Ensure git is available on Hub/broker hosts (document as prerequisite).
+1. ✅ Implement host-side git clone in the grove creation handler:
+   - ✅ Create workspace directory.
+   - ✅ Run `git clone` with token auth (GitHub App or grove secrets).
+   - ✅ Configure git identity (`Scion` / `agent@scion.dev`).
+   - ✅ On failure: clean up directory and grove record, fail creation.
+   - ✅ Sanitize credentials from remote URL and error messages.
+2. ✅ Git is invoked via `exec.Command` — requires git on Hub/broker hosts (prerequisite).
 
 ### Phase 3: Agent Provisioning Integration
 
