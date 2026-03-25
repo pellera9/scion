@@ -524,6 +524,19 @@ func IsSharedWorkspaceFromContext(ctx context.Context) bool {
 	return v
 }
 
+type githubAppContextKey struct{}
+
+// ContextWithGitHubApp returns a new context with the GitHub App enabled flag attached.
+func ContextWithGitHubApp(ctx context.Context) context.Context {
+	return context.WithValue(ctx, githubAppContextKey{}, true)
+}
+
+// IsGitHubAppFromContext returns true if the context indicates GitHub App is enabled.
+func IsGitHubAppFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(githubAppContextKey{}).(bool)
+	return v
+}
+
 type brokerModeContextKey struct{}
 
 // ContextWithBrokerMode returns a new context with broker mode flag attached.

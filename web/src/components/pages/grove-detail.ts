@@ -1282,10 +1282,20 @@ export class ScionPageGroveDetail extends LitElement {
         method: 'POST',
       });
 
-      const result = (await response.json()) as { status?: string; output?: string; error?: string; detail?: string };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (await response.json()) as any;
 
       if (!response.ok) {
-        this.pullResult = { status: 'error', error: result.detail || result.error || 'Pull failed' };
+        // Extract error message from structured APIError or legacy format
+        const apiErr = result?.error;
+        let errorMsg = (typeof apiErr === 'object' ? apiErr?.message : null)
+          || result?.detail || result?.error || 'Pull failed';
+        // Append guidance hint if available
+        const guidance = apiErr?.details?.guidance;
+        if (guidance) {
+          errorMsg += ` — ${guidance}`;
+        }
+        this.pullResult = { status: 'error', error: errorMsg };
         return;
       }
 

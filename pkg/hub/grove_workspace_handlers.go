@@ -17,6 +17,7 @@ package hub
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -701,10 +702,23 @@ func (s *Server) handleGroveWorkspacePull(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		slog.Warn("shared workspace pull failed",
 			"grove_id", grove.ID, "error", err.Error())
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error":  "pull failed",
-			"detail": err.Error(),
-		})
+
+		statusCode := http.StatusConflict
+		errorCode := ErrCodePullFailed
+		var details map[string]interface{}
+		var gitErr *util.GitError
+		if errors.As(err, &gitErr) {
+			if guidance := gitErr.UserGuidance(); guidance != "" {
+				details = map[string]interface{}{"guidance": guidance}
+			}
+			switch gitErr.Kind {
+			case util.GitErrAuth:
+				statusCode = http.StatusUnauthorized
+			case util.GitErrNetwork:
+				statusCode = http.StatusBadGateway
+			}
+		}
+		writeError(w, statusCode, errorCode, err.Error(), details)
 		return
 	}
 

@@ -2534,8 +2534,23 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("failed to clean up grove record after clone failure",
 					"grove_id", grove.ID, "error", delErr)
 			}
-			writeError(w, http.StatusInternalServerError, "clone_failed",
-				"Failed to clone repository for shared workspace: "+err.Error(), nil)
+			// Use appropriate HTTP status based on the error kind
+			statusCode := http.StatusInternalServerError
+			var details map[string]interface{}
+			var gitErr *util.GitError
+			if errors.As(err, &gitErr) {
+				if guidance := gitErr.UserGuidance(); guidance != "" {
+					details = map[string]interface{}{"guidance": guidance}
+				}
+				switch gitErr.Kind {
+				case util.GitErrAuth:
+					statusCode = http.StatusUnprocessableEntity
+				case util.GitErrNotFound:
+					statusCode = http.StatusUnprocessableEntity
+				}
+			}
+			writeError(w, statusCode, ErrCodeCloneFailed,
+				"Failed to clone repository for shared workspace: "+err.Error(), details)
 			return
 		}
 	} else if grove.GitRemote == "" {

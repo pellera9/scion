@@ -566,8 +566,9 @@ func TestFormatCloneError(t *testing.T) {
 
 	t.Run("with token", func(t *testing.T) {
 		err := formatCloneError("fatal: Authentication failed", "ghp_token123")
-		if !strings.Contains(err.Error(), "GITHUB_TOKEN may be invalid") {
-			t.Errorf("expected 'invalid token' message, got: %v", err)
+		// Auth errors should include guidance about checking credentials
+		if !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+			t.Errorf("expected GITHUB_TOKEN guidance in error, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "fatal: Authentication failed") {
 			t.Errorf("expected stderr in error, got: %v", err)

@@ -83,11 +83,16 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<Res
  */
 export async function extractApiError(res: Response, fallback: string): Promise<string> {
   try {
-    const data = (await res.json()) as {
-      error?: { message?: string } | string;
-      message?: string;
-    };
-    if (typeof data.error === 'object' && data.error?.message) return data.error.message;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await res.json()) as any;
+    if (typeof data.error === 'object' && data.error?.message) {
+      let msg: string = data.error.message;
+      // Append guidance hint when available (e.g. clone/pull error details)
+      if (data.error?.details?.guidance) {
+        msg += ` — ${data.error.details.guidance}`;
+      }
+      return msg;
+    }
     if (typeof data.message === 'string') return data.message;
     if (typeof data.error === 'string') return data.error;
   } catch {

@@ -691,3 +691,59 @@ func TestSanitizeGitOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyGitError(t *testing.T) {
+	tests := []struct {
+		name     string
+		stderr   string
+		wantKind GitErrorKind
+	}{
+		{"auth failure 401", "fatal: Authentication failed for 'https://github.com/org/repo.git/': 401", GitErrAuth},
+		{"auth failure 403", "remote: Permission denied (403)", GitErrAuth},
+		{"invalid credentials", "fatal: Invalid credentials", GitErrAuth},
+		{"could not read username", "fatal: could not read Username for 'https://github.com'", GitErrAuth},
+		{"not found", "fatal: repository 'https://github.com/org/repo.git/' not found", GitErrNotFound},
+		{"404", "ERROR: Repository not found. 404", GitErrNotFound},
+		{"network error", "fatal: unable to access: Could not resolve host: github.com", GitErrNetwork},
+		{"connection refused", "fatal: unable to connect: connection refused", GitErrNetwork},
+		{"timed out", "fatal: unable to access: timed out", GitErrNetwork},
+		{"non-fast-forward", "fatal: Not possible to fast-forward, aborting.", GitErrNonFastForward},
+		{"unknown error", "fatal: some unknown error", GitErrUnknown},
+		{"empty stderr", "", GitErrUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gitErr := ClassifyGitError(tt.stderr)
+			if gitErr.Kind != tt.wantKind {
+				t.Errorf("ClassifyGitError(%q).Kind = %v, want %v", tt.stderr, gitErr.Kind, tt.wantKind)
+			}
+			if gitErr.Message != tt.stderr {
+				t.Errorf("ClassifyGitError(%q).Message = %q, want %q", tt.stderr, gitErr.Message, tt.stderr)
+			}
+		})
+	}
+}
+
+func TestGitError_UserGuidance(t *testing.T) {
+	tests := []struct {
+		kind     GitErrorKind
+		wantHint bool
+	}{
+		{GitErrAuth, true},
+		{GitErrNotFound, true},
+		{GitErrNetwork, true},
+		{GitErrNonFastForward, true},
+		{GitErrUnknown, false},
+	}
+	for _, tt := range tests {
+		err := &GitError{Kind: tt.kind, Message: "test"}
+		guidance := err.UserGuidance()
+		if tt.wantHint && guidance == "" {
+			t.Errorf("GitError{Kind: %v}.UserGuidance() returned empty, want non-empty", tt.kind)
+		}
+		if !tt.wantHint && guidance != "" {
+			t.Errorf("GitError{Kind: %v}.UserGuidance() = %q, want empty", tt.kind, guidance)
+		}
+	}
+}

@@ -1058,21 +1058,24 @@ func gitCloneWorkspace(uid, gid int) error {
 		}
 	}
 
-	// Configure credential helper for subsequent push operations.
-	// When GitHub App token refresh is enabled, the credential helper reads
-	// the token from the refreshable token file instead of the env var, so
-	// git operations always use a fresh token even after refresh.
+	// Configure credential helper in the user's $HOME/.gitconfig (not the
+	// workspace .git/config). This keeps credentials out of the workspace,
+	// matching the pattern used by shared-workspace groves. When GitHub App
+	// token refresh is enabled, use sciontool's credential-helper command
+	// which handles on-demand token refresh from the Hub.
+	agentHomeDir := os.Getenv("HOME")
+	if agentHomeDir == "" {
+		agentHomeDir = "/home/scion"
+	}
+	gitconfigPath := filepath.Join(agentHomeDir, ".gitconfig")
+
 	var credentialHelper string
 	if os.Getenv("SCION_GITHUB_APP_ENABLED") == "true" {
-		tokenPath := os.Getenv("SCION_GITHUB_TOKEN_PATH")
-		if tokenPath == "" {
-			tokenPath = "/tmp/.github-token"
-		}
-		credentialHelper = fmt.Sprintf(`!f() { test -f "%s" && echo "password=$(cat '%s')" || echo "password=${GITHUB_TOKEN}"; echo "username=oauth2"; }; f`, tokenPath, tokenPath)
+		credentialHelper = "!sciontool credential-helper"
 	} else {
 		credentialHelper = `!f() { echo "password=${GITHUB_TOKEN}"; echo "username=oauth2"; }; f`
 	}
-	credCmd := exec.Command("git", "-C", workspacePath, "config", "credential.helper", credentialHelper)
+	credCmd := exec.Command("git", "config", "--file", gitconfigPath, "credential.helper", credentialHelper)
 	setupGitCmd(credCmd)
 	if err := credCmd.Run(); err != nil {
 		return fmt.Errorf("failed to configure git credential helper: %w", err)
@@ -1173,19 +1176,19 @@ func configureSharedWorkspaceGit(agentHome string) {
 // isAuthError returns true if the git stderr output indicates an authentication
 // or authorization failure (as opposed to a branch-not-found or network error).
 func isAuthError(sanitizedStderr string) bool {
-	lower := strings.ToLower(sanitizedStderr)
-	return strings.Contains(lower, "authentication failed") ||
-		strings.Contains(lower, "could not read username") ||
-		strings.Contains(lower, "invalid credentials") ||
-		strings.Contains(lower, "403") ||
-		strings.Contains(lower, "401")
+	return util.ClassifyGitError(sanitizedStderr).Kind == util.GitErrAuth
 }
 
 // formatCloneError builds a descriptive error from sanitized git stderr.
 // When no GITHUB_TOKEN is set, the message calls that out specifically.
+// Also includes user-facing guidance from the error classification.
 func formatCloneError(sanitizedStderr, token string) error {
+	gitErr := util.ClassifyGitError(sanitizedStderr)
 	if token == "" {
 		return fmt.Errorf("git clone failed (no GITHUB_TOKEN secret configured — the repository may require authentication): %s", sanitizedStderr)
+	}
+	if guidance := gitErr.UserGuidance(); guidance != "" {
+		return fmt.Errorf("git clone failed (%s): %s", guidance, sanitizedStderr)
 	}
 	return fmt.Errorf("git clone failed (GITHUB_TOKEN may be invalid or lack Contents read access): %s", sanitizedStderr)
 }

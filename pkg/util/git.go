@@ -551,8 +551,12 @@ func CloneSharedWorkspace(workspacePath, cloneURL, branch, token string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Sanitize output to avoid leaking tokens in error messages
-		sanitized := sanitizeGitOutput(string(output), token)
-		return fmt.Errorf("git clone failed: %s", strings.TrimSpace(sanitized))
+		sanitized := strings.TrimSpace(sanitizeGitOutput(string(output), token))
+		gitErr := ClassifyGitError(sanitized)
+		if guidance := gitErr.UserGuidance(); guidance != "" {
+			return &GitError{Kind: gitErr.Kind, Message: fmt.Sprintf("git clone failed: %s (%s)", sanitized, guidance)}
+		}
+		return &GitError{Kind: gitErr.Kind, Message: fmt.Sprintf("git clone failed: %s", sanitized)}
 	}
 
 	// Configure git identity in the cloned workspace
@@ -597,7 +601,11 @@ func PullSharedWorkspace(workspacePath, token string) (string, error) {
 	output, err := cmd.CombinedOutput()
 	sanitized := sanitizeGitOutput(strings.TrimSpace(string(output)), token)
 	if err != nil {
-		return "", fmt.Errorf("git pull failed: %s", sanitized)
+		gitErr := ClassifyGitError(sanitized)
+		if guidance := gitErr.UserGuidance(); guidance != "" {
+			return "", &GitError{Kind: gitErr.Kind, Message: fmt.Sprintf("git pull failed: %s (%s)", sanitized, guidance)}
+		}
+		return "", &GitError{Kind: gitErr.Kind, Message: fmt.Sprintf("git pull failed: %s", sanitized)}
 	}
 	return sanitized, nil
 }
@@ -610,6 +618,79 @@ func gitConfig(repoPath, key, value string) error {
 		return fmt.Errorf("%s: %s", key, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+// GitErrorKind classifies git operation failures for appropriate error handling.
+type GitErrorKind int
+
+const (
+	// GitErrUnknown is the default for unrecognized errors.
+	GitErrUnknown GitErrorKind = iota
+	// GitErrAuth indicates authentication or authorization failure (401/403).
+	GitErrAuth
+	// GitErrNotFound indicates the repository or branch was not found (404).
+	GitErrNotFound
+	// GitErrNetwork indicates a network connectivity issue.
+	GitErrNetwork
+	// GitErrNonFastForward indicates a pull failed because local commits diverge.
+	GitErrNonFastForward
+)
+
+// GitError wraps a git operation error with a classified kind and sanitized message.
+type GitError struct {
+	Kind    GitErrorKind
+	Message string
+}
+
+func (e *GitError) Error() string {
+	return e.Message
+}
+
+// ClassifyGitError inspects sanitized git stderr and returns a classified GitError.
+func ClassifyGitError(sanitizedStderr string) *GitError {
+	lower := strings.ToLower(sanitizedStderr)
+
+	kind := GitErrUnknown
+	switch {
+	case strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "could not read username") ||
+		strings.Contains(lower, "invalid credentials") ||
+		strings.Contains(lower, "403") ||
+		strings.Contains(lower, "401"):
+		kind = GitErrAuth
+	case strings.Contains(lower, "repository not found") ||
+		strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "does not exist") ||
+		strings.Contains(lower, "404"):
+		kind = GitErrNotFound
+	case strings.Contains(lower, "could not resolve host") ||
+		strings.Contains(lower, "unable to access") ||
+		strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "network is unreachable") ||
+		strings.Contains(lower, "timed out"):
+		kind = GitErrNetwork
+	case strings.Contains(lower, "not possible to fast-forward") ||
+		strings.Contains(lower, "non-fast-forward"):
+		kind = GitErrNonFastForward
+	}
+
+	return &GitError{Kind: kind, Message: sanitizedStderr}
+}
+
+// UserGuidance returns a user-facing hint for the error kind.
+func (e *GitError) UserGuidance() string {
+	switch e.Kind {
+	case GitErrAuth:
+		return "Check that GITHUB_TOKEN (or GitHub App credentials) are valid and have repository read access."
+	case GitErrNotFound:
+		return "Verify the repository URL exists and that the token has access to it (private repos require explicit access)."
+	case GitErrNetwork:
+		return "A network error occurred. Check connectivity and try again."
+	case GitErrNonFastForward:
+		return "The workspace has local commits that diverge from the remote. Merge or reset manually before pulling."
+	default:
+		return ""
+	}
 }
 
 // sanitizeGitOutput removes a token from git output to prevent credential leaks.

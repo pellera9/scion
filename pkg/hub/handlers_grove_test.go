@@ -1939,8 +1939,9 @@ func TestCreateGrove_SharedWorkspace_CloneFailure_RollsBackGrove(t *testing.T) {
 	}
 
 	rec := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code,
-		"shared workspace grove creation should fail when clone fails: %s", rec.Body.String())
+	// Clone failure returns 422 for classified errors (auth, not-found) or 500 for generic errors
+	assert.True(t, rec.Code == http.StatusInternalServerError || rec.Code == http.StatusUnprocessableEntity,
+		"shared workspace grove creation should fail when clone fails (got %d): %s", rec.Code, rec.Body.String())
 
 	// Verify no grove record was left behind
 	result, err := st.ListGroves(context.Background(), store.GroveFilter{

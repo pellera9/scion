@@ -770,8 +770,11 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	}
 
 	// 2f. Configure git credential helper for shared-workspace groves.
-	// The credential helper uses GITHUB_TOKEN env var (injected at runtime)
-	// and is written to $HOME/.gitconfig so it doesn't pollute the shared workspace.
+	// The credential helper is written to $HOME/.gitconfig so it doesn't
+	// pollute the shared workspace. This pre-configures a basic credential
+	// helper using GITHUB_TOKEN env var. When GitHub App is enabled,
+	// sciontool init's configureSharedWorkspaceGit() will upgrade this to
+	// use `sciontool credential-helper` for on-demand token refresh.
 	if api.IsSharedWorkspaceFromContext(ctx) {
 		gitconfigPath := filepath.Join(agentHome, ".gitconfig")
 		credentialSection := "\n[credential]\n\thelper = !f() { echo \"username=oauth2\"; echo \"password=${GITHUB_TOKEN}\"; }; f\n"

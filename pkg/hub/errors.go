@@ -58,6 +58,8 @@ const (
 	ErrCodeRuntimeBrokerUnavail = "runtime_broker_unavailable"
 
 	ErrCodeMissingEnvVars = "missing_env_vars"
+	ErrCodeCloneFailed    = "clone_failed"
+	ErrCodePullFailed     = "pull_failed"
 
 	// Broker authentication error codes
 	ErrCodeInvalidJoinToken = "invalid_join_token"
