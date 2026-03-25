@@ -30,6 +30,18 @@ let overlayCtx: CanvasRenderingContext2D;
 let animFrameId: number;
 let manifest: PlaybackManifest | null = null;
 
+/**
+ * Clamp a file path to the configured max depth.
+ * If the path has more segments than maxDepth, truncate and return a directory path.
+ * Returns the (possibly truncated) path and whether it's a directory due to truncation.
+ */
+function clampFilePath(filePath: string, maxDepth: number): { path: string; clamped: boolean } {
+  if (maxDepth <= 0) return { path: filePath, clamped: false };
+  const parts = filePath.split('/');
+  if (parts.length <= maxDepth) return { path: filePath, clamped: false };
+  return { path: parts.slice(0, maxDepth).join('/'), clamped: true };
+}
+
 function init(): void {
   const graphContainer = document.getElementById('graph-container')!;
   const controlsContainer = document.getElementById('controls-container')!;
@@ -177,8 +189,14 @@ function handleEventInstant(evt: PlaybackEvent): void {
     case 'file_edit':
     case 'file_read': {
       const fileEvt = evt.data as FileEditEvent;
-      if (fileEvt.filePath && !fileGraph.hasFile(fileEvt.filePath)) {
-        fileGraph.addFile(fileEvt.filePath, true); // visible immediately during replay
+      if (!fileEvt.filePath) break;
+      const { path: fp, clamped } = clampFilePath(fileEvt.filePath, manifest?.maxDepth ?? 0);
+      if (!fileGraph.hasFile(fp)) {
+        if (clamped) {
+          fileGraph.addFile(fp + '/', true); // truncated → directory, visible immediately
+        } else {
+          fileGraph.addFile(fp, true); // visible immediately during replay
+        }
       }
       break;
     }
@@ -217,13 +235,22 @@ function handleEvent(evt: PlaybackEvent): void {
     case 'file_edit':
     case 'file_read': {
       const fileEvt = evt.data as FileEditEvent;
+      if (!fileEvt.filePath) break;
+      const { path: fp, clamped } = clampFilePath(fileEvt.filePath, manifest?.maxDepth ?? 0);
+      // Rewrite the event's filePath so particles target the clamped node
+      const clampedEvt: FileEditEvent = { ...fileEvt, filePath: fp };
       // Dynamically add file to graph if not already present
-      if (fileEvt.filePath && !fileGraph.hasFile(fileEvt.filePath)) {
-        // For create actions, file starts invisible; for edits/reads it's visible
-        const visible = fileEvt.action !== 'create';
-        fileGraph.addFile(fileEvt.filePath, visible);
+      if (!fileGraph.hasFile(fp)) {
+        if (clamped) {
+          // Truncated path is a directory — always visible immediately
+          fileGraph.addFile(fp + '/', true);
+        } else {
+          // For create actions, file starts invisible; for edits/reads it's visible
+          const visible = fileEvt.action !== 'create';
+          fileGraph.addFile(fp, visible);
+        }
       }
-      fileEditRenderer.addFileEdit(fileEvt, agentRing, fileGraph);
+      fileEditRenderer.addFileEdit(clampedEvt, agentRing, fileGraph);
       break;
     }
     case 'agent_create': {

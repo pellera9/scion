@@ -5,6 +5,7 @@ export interface PlaybackManifest {
   files: FileNode[];
   groveId: string;
   groveName: string;
+  maxDepth: number;
 }
 
 export interface AgentInfo {

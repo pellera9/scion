@@ -111,7 +111,7 @@ func TestParseLogFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := ParseLogFile(logPath, "")
+	result, err := ParseLogFile(logPath, "", 0)
 	if err != nil {
 		t.Fatalf("ParseLogFile failed: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestParseLogFileWithFSLog(t *testing.T) {
 
 	// Parse with fs-log: file_edit from Write tool should be suppressed,
 	// but file_read from Read tool should still appear (fs-watcher doesn't capture reads yet).
-	result, err := ParseLogFile(logPath, fsLogPath)
+	result, err := ParseLogFile(logPath, fsLogPath, 0)
 	if err != nil {
 		t.Fatalf("ParseLogFile with fs-log failed: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestParseLogFileWithFSLog(t *testing.T) {
 	}
 
 	// Parse without fs-log: should have both tool-based file events
-	resultNoFS, err := ParseLogFile(logPath, "")
+	resultNoFS, err := ParseLogFile(logPath, "", 0)
 	if err != nil {
 		t.Fatalf("ParseLogFile without fs-log failed: %v", err)
 	}
@@ -743,5 +743,40 @@ func TestPostStartSetsRunningPhase(t *testing.T) {
 	}
 	if !foundRunning {
 		t.Error("expected agent_state with phase 'running' from post_start event")
+	}
+}
+
+func TestMaxDepthInManifest(t *testing.T) {
+	entries := []GCPLogEntry{
+		{
+			InsertID:  "1",
+			Timestamp: "2026-03-22T16:30:00.000Z",
+			LogName:   "projects/test/logs/scion-agents",
+			Labels:    map[string]string{"agent_id": "agent-1", "scion.harness": "claude"},
+			JSONPayload: map[string]any{
+				"message": "agent.session.start",
+			},
+		},
+	}
+	data, _ := json.Marshal(entries)
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "logs.json")
+	os.WriteFile(logPath, data, 0o644)
+
+	result, err := ParseLogFile(logPath, "", 3)
+	if err != nil {
+		t.Fatalf("ParseLogFile failed: %v", err)
+	}
+	if result.Manifest.MaxDepth != 3 {
+		t.Errorf("expected maxDepth=3 in manifest, got %d", result.Manifest.MaxDepth)
+	}
+
+	// maxDepth=0 means unlimited
+	result2, err := ParseLogFile(logPath, "", 0)
+	if err != nil {
+		t.Fatalf("ParseLogFile failed: %v", err)
+	}
+	if result2.Manifest.MaxDepth != 0 {
+		t.Errorf("expected maxDepth=0 in manifest, got %d", result2.Manifest.MaxDepth)
 	}
 }

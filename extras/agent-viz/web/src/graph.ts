@@ -75,33 +75,29 @@ export class FileGraph {
   }
 
   addFile(filePath: string, visible = false): void {
-    if (this.nodes.has(filePath)) return;
-
     // Ensure root node exists
     this.ensureRoot();
 
-    const name = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-    const parent = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
+    const isDir = filePath.endsWith('/');
+    const id = isDir ? filePath.slice(0, -1) : filePath;
+
+    // Already tracked — nothing to do
+    if (this.nodes.has(id)) return;
+
+    // Derive name and parent from the canonical id (no trailing slash)
+    const name = id.includes('/') ? id.substring(id.lastIndexOf('/') + 1) : id;
+    const parent = id.includes('/') ? id.substring(0, id.lastIndexOf('/')) : '.';
 
     // Ensure parent directories exist
     if (parent !== '.' && !this.nodes.has(parent)) {
       this.addFile(parent + '/', true); // directories are visible immediately
     }
 
-    const isDir = filePath.endsWith('/');
-    const id = isDir ? filePath.slice(0, -1) : filePath;
-    if (this.nodes.has(id)) return;
-
-    const actualName = isDir ? (id.includes('/') ? id.substring(id.lastIndexOf('/') + 1) : id) : name;
-    const actualParent = isDir
-      ? (id.includes('/') ? id.substring(0, id.lastIndexOf('/')) : '.')
-      : parent;
-
     const node: GraphNode = {
       id,
-      name: actualName,
+      name,
       isDir,
-      parent: actualParent,
+      parent,
       highlighted: false,
       visible: visible || isDir, // directories always visible immediately
     };
@@ -112,7 +108,7 @@ export class FileGraph {
     const newNodes = [...existingNodes, node];
     const newLinks = [...existingLinks];
 
-    const linkParent = actualParent || '.';
+    const linkParent = parent || '.';
     if (this.nodes.has(linkParent)) {
       newLinks.push({ source: linkParent, target: id });
     }

@@ -47,6 +47,7 @@ type PlaybackManifest struct {
 	Files     []FileNode  `json:"files"`
 	GroveID   string      `json:"groveId"`
 	GroveName string      `json:"groveName"`
+	MaxDepth  int         `json:"maxDepth"`
 }
 
 type TimeRange struct {
@@ -128,7 +129,7 @@ type fsWatcherEvent struct {
 // ParseLogFile reads a GCP log JSON export and returns the manifest and events.
 // If fsLogPath is non-empty, filesystem events are sourced from that NDJSON log
 // instead of from tool calls in the primary log.
-func ParseLogFile(path string, fsLogPath string) (*ParseResult, error) {
+func ParseLogFile(path string, fsLogPath string, maxDepth int) (*ParseResult, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading log file: %w", err)
@@ -182,6 +183,7 @@ func ParseLogFile(path string, fsLogPath string) (*ParseResult, error) {
 		Files:     []FileNode{}, // Files are added dynamically via events
 		GroveID:   groveID,
 		GroveName: groveName,
+		MaxDepth:  maxDepth,
 	}
 
 	return &ParseResult{
