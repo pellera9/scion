@@ -113,6 +113,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		migrationV35,
 		migrationV36,
 		migrationV37,
+		migrationV38,
 	}
 
 	// Create migrations table if not exists
@@ -858,6 +859,12 @@ const migrationV37 = `
 ALTER TABLE agents ADD COLUMN ancestry TEXT;
 `
 
+// Migration V38: Backfill ancestry for existing agents from created_by.
+const migrationV38 = `
+UPDATE agents SET ancestry = json_array(created_by)
+WHERE created_by IS NOT NULL AND created_by != '' AND ancestry IS NULL;
+`
+
 // Helper functions for JSON marshaling/unmarshaling
 func marshalJSON(v interface{}) string {
 	if v == nil {
@@ -961,9 +968,9 @@ func (s *SQLiteStore) CreateAgent(ctx context.Context, agent *store.Agent) error
 
 func (s *SQLiteStore) GetAgent(ctx context.Context, id string) (*store.Agent, error) {
 	agent := &store.Agent{}
-	var labels, annotations, appliedConfig, ancestry string
+	var labels, annotations, appliedConfig string
 	var lastSeen, lastActivityEvent, deletedAt, startedAt sql.NullTime
-	var runtimeBrokerID, message, toolName sql.NullString
+	var runtimeBrokerID, message, toolName, ancestry sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, agent_id, name, template, grove_id,
@@ -999,7 +1006,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, id string) (*store.Agent, er
 	unmarshalJSON(labels, &agent.Labels)
 	unmarshalJSON(annotations, &agent.Annotations)
 	unmarshalJSON(appliedConfig, &agent.AppliedConfig)
-	unmarshalJSON(ancestry, &agent.Ancestry)
+	unmarshalJSON(ancestry.String, &agent.Ancestry)
 	if lastSeen.Valid {
 		agent.LastSeen = lastSeen.Time
 	}
@@ -1027,9 +1034,9 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, id string) (*store.Agent, er
 
 func (s *SQLiteStore) GetAgentBySlug(ctx context.Context, groveID, slug string) (*store.Agent, error) {
 	agent := &store.Agent{}
-	var labels, annotations, appliedConfig, ancestry string
+	var labels, annotations, appliedConfig string
 	var lastSeen, lastActivityEvent, deletedAt, startedAt sql.NullTime
-	var runtimeBrokerID, message, toolName sql.NullString
+	var runtimeBrokerID, message, toolName, ancestry sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, agent_id, name, template, grove_id,
@@ -1065,7 +1072,7 @@ func (s *SQLiteStore) GetAgentBySlug(ctx context.Context, groveID, slug string) 
 	unmarshalJSON(labels, &agent.Labels)
 	unmarshalJSON(annotations, &agent.Annotations)
 	unmarshalJSON(appliedConfig, &agent.AppliedConfig)
-	unmarshalJSON(ancestry, &agent.Ancestry)
+	unmarshalJSON(ancestry.String, &agent.Ancestry)
 	if lastSeen.Valid {
 		agent.LastSeen = lastSeen.Time
 	}
@@ -1244,9 +1251,9 @@ func (s *SQLiteStore) ListAgents(ctx context.Context, filter store.AgentFilter, 
 	var agents []store.Agent
 	for rows.Next() {
 		var agent store.Agent
-		var labels, annotations, appliedConfig, ancestry string
+		var labels, annotations, appliedConfig string
 		var lastSeen, lastActivityEvent, deletedAt, startedAt sql.NullTime
-		var runtimeBrokerID, message, toolName sql.NullString
+		var runtimeBrokerID, message, toolName, ancestry sql.NullString
 
 		if err := rows.Scan(
 			&agent.ID, &agent.Slug, &agent.Name, &agent.Template, &agent.GroveID,
@@ -1266,7 +1273,7 @@ func (s *SQLiteStore) ListAgents(ctx context.Context, filter store.AgentFilter, 
 		unmarshalJSON(labels, &agent.Labels)
 		unmarshalJSON(annotations, &agent.Annotations)
 		unmarshalJSON(appliedConfig, &agent.AppliedConfig)
-		unmarshalJSON(ancestry, &agent.Ancestry)
+		unmarshalJSON(ancestry.String, &agent.Ancestry)
 		if lastSeen.Valid {
 			agent.LastSeen = lastSeen.Time
 		}
@@ -1441,9 +1448,9 @@ func (s *SQLiteStore) MarkStaleAgentsOffline(ctx context.Context, threshold time
 	var agents []store.Agent
 	for rows.Next() {
 		var agent store.Agent
-		var labels, annotations, appliedConfig, ancestry string
+		var labels, annotations, appliedConfig string
 		var lastSeen, lastActivityEvent, deletedAt, startedAt sql.NullTime
-		var runtimeBrokerID, message, toolName sql.NullString
+		var runtimeBrokerID, message, toolName, ancestry sql.NullString
 
 		if err := rows.Scan(
 			&agent.ID, &agent.Slug, &agent.Name, &agent.Template, &agent.GroveID,
@@ -1463,7 +1470,7 @@ func (s *SQLiteStore) MarkStaleAgentsOffline(ctx context.Context, threshold time
 		unmarshalJSON(labels, &agent.Labels)
 		unmarshalJSON(annotations, &agent.Annotations)
 		unmarshalJSON(appliedConfig, &agent.AppliedConfig)
-		unmarshalJSON(ancestry, &agent.Ancestry)
+		unmarshalJSON(ancestry.String, &agent.Ancestry)
 		if lastSeen.Valid {
 			agent.LastSeen = lastSeen.Time
 		}
@@ -1555,9 +1562,9 @@ func (s *SQLiteStore) MarkStalledAgents(ctx context.Context, activityThreshold, 
 	var agents []store.Agent
 	for rows.Next() {
 		var agent store.Agent
-		var labels, annotations, appliedConfig, ancestry string
+		var labels, annotations, appliedConfig string
 		var lastSeen, lastActivityEvent, deletedAt, startedAt sql.NullTime
-		var runtimeBrokerID, message, toolName sql.NullString
+		var runtimeBrokerID, message, toolName, ancestry sql.NullString
 
 		if err := rows.Scan(
 			&agent.ID, &agent.Slug, &agent.Name, &agent.Template, &agent.GroveID,
@@ -1577,7 +1584,7 @@ func (s *SQLiteStore) MarkStalledAgents(ctx context.Context, activityThreshold, 
 		unmarshalJSON(labels, &agent.Labels)
 		unmarshalJSON(annotations, &agent.Annotations)
 		unmarshalJSON(appliedConfig, &agent.AppliedConfig)
-		unmarshalJSON(ancestry, &agent.Ancestry)
+		unmarshalJSON(ancestry.String, &agent.Ancestry)
 		if lastSeen.Valid {
 			agent.LastSeen = lastSeen.Time
 		}

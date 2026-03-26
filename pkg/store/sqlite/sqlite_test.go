@@ -280,6 +280,32 @@ func TestAgentAncestry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, retrieved.Ancestry)
 	})
+
+	t.Run("NULL ancestry column does not crash scan", func(t *testing.T) {
+		// Create agent normally, then set ancestry to NULL to simulate pre-migration state
+		agentNullAnc := &store.Agent{
+			ID: api.NewUUID(), Slug: "agent-null-anc", Name: "Null Ancestry",
+			Template: "claude", GroveID: grove.ID,
+			Phase: string(state.PhaseRunning), Visibility: store.VisibilityPrivate,
+			Ancestry: []string{"some-user"},
+		}
+		require.NoError(t, s.CreateAgent(ctx, agentNullAnc))
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET ancestry = NULL WHERE id = ?`, agentNullAnc.ID)
+		require.NoError(t, err)
+		agentID := agentNullAnc.ID
+
+		retrieved, err := s.GetAgent(ctx, agentID)
+		require.NoError(t, err)
+		assert.Nil(t, retrieved.Ancestry)
+
+		retrievedBySlug, err := s.GetAgentBySlug(ctx, grove.ID, "agent-null-anc")
+		require.NoError(t, err)
+		assert.Nil(t, retrievedBySlug.Ancestry)
+
+		result, err := s.ListAgents(ctx, store.AgentFilter{GroveID: grove.ID}, store.ListOptions{})
+		require.NoError(t, err)
+		assert.True(t, result.TotalCount > 0)
+	})
 }
 
 func TestAgentStatusUpdate(t *testing.T) {
