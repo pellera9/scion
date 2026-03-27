@@ -61,7 +61,8 @@ export type StateEventType =
   | 'connected'
   | 'disconnected'
   | 'scope-changed'
-  | 'notification-created';
+  | 'notification-created'
+  | 'user-message-created';
 
 export class StateManager extends EventTarget {
   private state: AppState = {
@@ -251,6 +252,12 @@ export class StateManager extends EventTarget {
       // Grove broker events: grove.{groveId}.broker.{eventType}
       if (parts[2] === 'broker') {
         // Broker events don't affect agent/grove state maps currently
+        return;
+      }
+
+      // User-targeted message events: grove.{groveId}.user.{userId}
+      if (parts[2] === 'user') {
+        this.notify('user-message-created');
         return;
       }
 

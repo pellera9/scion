@@ -65,6 +65,7 @@ const USED_ICONS = [
   'diagram-3',
   'download',
   'emoji-frown',
+  'envelope',
   'exclamation-circle-fill',
   'exclamation-octagon',
   'exclamation-triangle',

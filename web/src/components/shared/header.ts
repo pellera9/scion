@@ -25,6 +25,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 
 import type { User } from '../../shared/types.js';
 import './notification-tray.js';
+import './inbox-tray.js';
 
 @customElement('scion-header')
 export class ScionHeader extends LitElement {
@@ -265,6 +266,7 @@ export class ScionHeader extends LitElement {
 
       <div class="header-right">
         <div class="header-actions">
+          <scion-inbox-tray .user=${this.user}></scion-inbox-tray>
           <scion-notification-tray .user=${this.user}></scion-notification-tray>
           <sl-tooltip content="Help">
             <sl-icon-button name="question-circle" label="Help"></sl-icon-button>

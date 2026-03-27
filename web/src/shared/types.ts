@@ -548,6 +548,29 @@ export interface RuntimeBroker {
 }
 
 // ---------------------------------------------------------------------------
+// Messages (inbox)
+// ---------------------------------------------------------------------------
+
+/**
+ * Message from the Hub API (GET /api/v1/messages or GET /api/v1/agents/{id}/messages)
+ */
+export interface Message {
+  id: string;
+  groveId: string;
+  sender: string;
+  senderId: string;
+  recipient: string;
+  recipientId: string;
+  msg: string;
+  type: string;
+  urgent?: boolean;
+  broadcasted?: boolean;
+  read: boolean;
+  agentId: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 

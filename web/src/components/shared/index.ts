@@ -29,6 +29,7 @@ export { ScionDebugPanel } from './debug-panel.js';
 export { ScionEnvVarList } from './env-var-list.js';
 export { ScionSecretList } from './secret-list.js';
 export { ScionNotificationTray } from './notification-tray.js';
+export { ScionInboxTray } from './inbox-tray.js';
 export { ScionViewToggle } from './view-toggle.js';
 export type { ViewMode } from './view-toggle.js';
 export { resourceStyles, listPageStyles } from './resource-styles.js';

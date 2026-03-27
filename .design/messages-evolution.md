@@ -1,7 +1,7 @@
 # Messages Evolution: Built-In Inbox and Bidirectional Human-Agent Messaging
 
 ## Status
-**In Progress** | March 2026 — Phases 1–4 complete
+**Complete** | March 2026 — All phases complete
 
 ## Problem
 
@@ -515,15 +515,15 @@ The existing `agent-message-viewer` reads from Cloud Logging. With the new messa
 3. ~~Publish `user.message` events for real-time delivery~~
 4. ~~Add message persistence in `MessageBrokerProxy.deliverToAgent` (for broker-routed messages)~~
 
-### Phase 5: Web Frontend Inbox Tray
+### Phase 5: Web Frontend Inbox Tray ✅ COMPLETE
 
-1. Extract `<TrayPanel>` and `<TrayItem>` shared components from the existing notification tray
-2. Refactor `notification-tray` to use the shared components
-3. Build `inbox-tray` component using the shared components; wire to `GET /api/v1/messages`
-4. Add envelope icon to the icon registry (`web/scripts/copy-shoelace-icons.mjs`)
-5. Subscribe to `user.message` SSE events for real-time badge updates
-6. Implement mark-read and mark-all-read actions
-7. Update `agent-message-viewer` to read from `GET /api/v1/agents/{id}/messages` as primary source
+1. ~~Extract `<TrayPanel>` and `<TrayItem>` shared components from the existing notification tray~~ (skipped — kept self-contained per simplicity; both trays share visual patterns without a premature abstraction)
+2. ~~Refactor `notification-tray` to use the shared components~~ (skipped for same reason)
+3. ~~Build `inbox-tray` component using the shared components; wire to `GET /api/v1/messages`~~
+4. ~~Add envelope icon to the icon registry (`web/scripts/copy-shoelace-icons.mjs`)~~
+5. ~~Subscribe to `user.message` SSE events for real-time badge updates~~
+6. ~~Implement mark-read and mark-all-read actions~~
+7. ~~Update `agent-message-viewer` to read from `GET /api/v1/agents/{id}/messages` as primary source~~
 
 ---
 

@@ -25,6 +25,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { apiFetch, extractApiError } from '../../client/api.js';
+import type { Message } from '../../shared/types.js';
 import './json-browser.js';
 
 interface MessageLogEntry {
@@ -44,7 +45,7 @@ interface MessageLogsResponse {
   hasMore?: boolean;
 }
 
-/** Parsed message info extracted from a log entry. */
+/** Parsed message info for rendering (from Hub store or Cloud Logging). */
 interface ParsedMessage {
   sender: string;
   recipient: string;
@@ -55,7 +56,7 @@ interface ParsedMessage {
   broadcasted: boolean;
   timestamp: string;
   insertId: string;
-  raw: MessageLogEntry;
+  raw: MessageLogEntry | null;
 }
 
 const MAX_BUFFER = 500;
@@ -388,32 +389,89 @@ export class ScionAgentMessageViewer extends LitElement {
   }
 
   private async fetchMessages(): Promise<void> {
-    const baseUrl = this.resolvedLogsUrl;
-    if (!baseUrl) return;
     this.loading = true;
     this.error = null;
 
     try {
+      // Primary: Hub message store API
+      if (this.agentId) {
+        const hubRes = await apiFetch(`/api/v1/agents/${this.agentId}/messages?limit=200`);
+        if (hubRes.ok) {
+          const data = (await hubRes.json()) as { items?: Message[] } | null;
+          const items = data?.items ?? [];
+          if (items.length > 0) {
+            this.mergeHubMessages(items);
+            return;
+          }
+        }
+      }
+
+      // Fallback: Cloud Logging proxy (for pre-migration records or when Hub is unavailable)
+      const baseUrl = this.resolvedLogsUrl;
+      if (!baseUrl) return;
+
       const params = new URLSearchParams({ tail: '200' });
       if (this.messages.length > 0) {
         params.set('since', this.messages[0].timestamp);
       }
-      const url = `${baseUrl}?${params.toString()}`;
-      const res = await apiFetch(url);
+      const res = await apiFetch(`${baseUrl}?${params.toString()}`);
       if (!res.ok) {
         const errData = await res.json().catch(() => ({})) as { error?: { message?: string }; message?: string };
         throw new Error(
           (errData.error as { message?: string })?.message || errData.message || `HTTP ${res.status}`
         );
       }
-
-      const data = (await res.json()) as MessageLogsResponse;
-      this.mergeEntries(data.entries || []);
+      const logData = (await res.json()) as MessageLogsResponse;
+      this.mergeEntries(logData.entries || []);
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Failed to fetch messages';
     } finally {
       this.loading = false;
     }
+  }
+
+  /** Parse a Hub store Message into a ParsedMessage for rendering. */
+  private parseHubMessage(msg: Message): ParsedMessage {
+    // Hub store: senderId === agentId means the agent sent the message (outbound).
+    // Otherwise the agent is the recipient (inbound from human).
+    const direction: 'sent' | 'received' = !this.agentId || msg.senderId === this.agentId
+      ? 'sent'
+      : 'received';
+
+    return {
+      sender: msg.sender,
+      recipient: msg.recipient,
+      direction,
+      msgType: msg.type,
+      body: msg.msg,
+      urgent: msg.urgent ?? false,
+      broadcasted: msg.broadcasted ?? false,
+      timestamp: msg.createdAt,
+      insertId: `hub:${msg.id}`,
+      raw: null,
+    };
+  }
+
+  private mergeHubMessages(items: Message[]): void {
+    for (const item of items) {
+      const parsed = this.parseHubMessage(item);
+      if (!this.entryMap.has(parsed.insertId)) {
+        this.entryMap.set(parsed.insertId, parsed);
+      }
+    }
+
+    const sorted = Array.from(this.entryMap.values()).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    if (sorted.length > MAX_BUFFER) {
+      const evicted = sorted.splice(MAX_BUFFER);
+      for (const e of evicted) {
+        this.entryMap.delete(e.insertId);
+      }
+    }
+
+    this.messages = sorted;
   }
 
   private parseEntry(entry: MessageLogEntry): ParsedMessage {
@@ -821,11 +879,13 @@ export class ScionAgentMessageViewer extends LitElement {
       broadcasted: msg.broadcasted,
       message: msg.body,
     };
-    if (msg.raw.labels && Object.keys(msg.raw.labels).length > 0) {
-      detail['labels'] = msg.raw.labels;
-    }
-    if (msg.raw.jsonPayload && Object.keys(msg.raw.jsonPayload).length > 0) {
-      detail['payload'] = msg.raw.jsonPayload;
+    if (msg.raw) {
+      if (msg.raw.labels && Object.keys(msg.raw.labels).length > 0) {
+        detail['labels'] = msg.raw.labels;
+      }
+      if (msg.raw.jsonPayload && Object.keys(msg.raw.jsonPayload).length > 0) {
+        detail['payload'] = msg.raw.jsonPayload;
+      }
     }
     return html`
       <div class="msg-detail" @click=${(e: Event) => e.stopPropagation()}>
