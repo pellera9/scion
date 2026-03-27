@@ -79,9 +79,6 @@ export class ScionPageTerminal extends LitElement {
   private loading = true;
 
   @state()
-  private mouseEnabled = true;
-
-  @state()
   private activeWindow: TmuxWindow = 'agent';
 
   @state()
@@ -188,7 +185,7 @@ export class ScionPageTerminal extends LitElement {
       color: #60a5fa;
     }
 
-    /* Two-icon toggle group: two icons side-by-side in a pill shape */
+    /* Window switcher toggle group: two rectangular icon buttons */
     .toggle-group {
       display: inline-flex;
       border: 1px solid #2a2a2a;
@@ -203,10 +200,9 @@ export class ScionPageTerminal extends LitElement {
       background: transparent;
       border: none;
       color: #555;
-      width: 28px;
-      height: 28px;
+      width: 44px;
+      height: 32px;
       cursor: pointer;
-      font-size: 0.875rem;
       line-height: 1;
       padding: 0;
       transition: color 0.15s, background 0.15s;
@@ -675,19 +671,6 @@ export class ScionPageTerminal extends LitElement {
   }
 
   /**
-   * Explicitly set tmux mouse mode via prefix key bindings.
-   * Uses Ctrl-B M (mouse on) / Ctrl-B m (mouse off) rather than a toggle
-   * to avoid state drift between the UI and tmux.
-   */
-  private setMouseMode(enabled: boolean): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
-    // Ctrl-B M = set mouse on, Ctrl-B m = set mouse off
-    this.sendData(enabled ? '\x02M' : '\x02m');
-    this.mouseEnabled = enabled;
-    this.terminal?.focus();
-  }
-
-  /**
    * Switch to the "agent" tmux window via prefix key binding (Ctrl-B A).
    */
   private switchToAgent(): void {
@@ -715,24 +698,14 @@ export class ScionPageTerminal extends LitElement {
 
   // --- SVG icon helpers ---
 
-  /** Mouse cursor icon (pointer arrow) */
-  private renderMouseIcon() {
-    return html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 0 L4 18 L9 13 L15 20 L18 17 L12 10 L18 10 Z"/></svg>`;
-  }
-
-  /** Clipboard icon */
-  private renderClipboardIcon() {
-    return html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>`;
-  }
-
   /** Robot icon (agent) */
   private renderRobotIcon() {
-    return html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16" stroke-width="3" stroke-linecap="round"/><line x1="16" y1="16" x2="16" y2="16" stroke-width="3" stroke-linecap="round"/></svg>`;
+    return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16" stroke-width="3" stroke-linecap="round"/><line x1="16" y1="16" x2="16" y2="16" stroke-width="3" stroke-linecap="round"/></svg>`;
   }
 
   /** Terminal/shell icon */
   private renderTerminalIcon() {
-    return html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
+    return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
   }
 
   override render() {
@@ -781,23 +754,6 @@ export class ScionPageTerminal extends LitElement {
         </a>
         <div class="separator"></div>
         <span class="agent-name">${this.agentName || this.agentId}</span>
-        <div
-          class="toggle-group"
-          title="Tmux mouse mode stays enabled for scrolling and pane interactions. Hold Shift while dragging to select text. On macOS, Option-drag also works. Use Mouse Off only if you want plain drag selection without a modifier."
-        >
-          <button
-            class=${this.mouseEnabled ? 'active' : ''}
-            title="Mouse on: scroll wheel and tmux mouse interactions stay enabled"
-            @click=${() => this.setMouseMode(true)}
-            ?disabled=${!this.connected}
-          >${this.renderMouseIcon()}</button>
-          <button
-            class=${!this.mouseEnabled ? 'active' : ''}
-            title="Mouse off: fallback for plain browser drag selection without Shift"
-            @click=${() => this.setMouseMode(false)}
-            ?disabled=${!this.connected}
-          >${this.renderClipboardIcon()}</button>
-        </div>
         <div class="toggle-group" title="Switch between agent and shell tmux windows">
           <button
             class=${this.activeWindow === 'agent' ? 'active' : ''}
