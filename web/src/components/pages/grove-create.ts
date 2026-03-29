@@ -40,6 +40,10 @@ export class ScionPageGroveCreate extends LitElement {
   @state()
   private existingGroveId: string | null = null;
 
+  /** Existing groves sharing the same git remote */
+  @state()
+  private existingGrovesForRemote: Array<{ id: string; name: string; slug: string }> = [];
+
   /** Form field values */
   @state()
   private name = '';
@@ -183,6 +187,24 @@ export class ScionPageGroveCreate extends LitElement {
       margin-top: 0.125rem;
     }
 
+    .info-banner {
+      background: var(--sl-color-primary-50, #eff6ff);
+      border: 1px solid var(--sl-color-primary-200, #bfdbfe);
+      border-radius: var(--scion-radius, 0.5rem);
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      color: var(--sl-color-primary-700, #1d4ed8);
+      font-size: 0.875rem;
+    }
+
+    .info-banner sl-icon {
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+
     .exists-dialog-body {
       font-size: 0.925rem;
       color: var(--scion-text, #1e293b);
@@ -231,6 +253,8 @@ export class ScionPageGroveCreate extends LitElement {
     this.mode = (e.target as HTMLElement & { value: string }).value as GroveMode;
   }
 
+  private gitRemoteCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
   private onGitRemoteInput(e: Event): void {
     this.gitRemote = (e.target as HTMLElement & { value: string }).value;
 
@@ -243,6 +267,33 @@ export class ScionPageGroveCreate extends LitElement {
           this.slug = this.slugify(derived);
         }
       }
+    }
+
+    // Debounced check for existing groves sharing this git remote
+    if (this.gitRemoteCheckTimer) {
+      clearTimeout(this.gitRemoteCheckTimer);
+    }
+    const url = this.gitRemote.trim();
+    if (url.length > 5) {
+      this.gitRemoteCheckTimer = setTimeout(() => this.checkExistingGroves(url), 500);
+    } else {
+      this.existingGrovesForRemote = [];
+    }
+  }
+
+  private async checkExistingGroves(gitUrl: string): Promise<void> {
+    try {
+      const response = await fetch(
+        `/api/v1/groves?gitRemote=${encodeURIComponent(gitUrl)}`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        groves?: Array<{ id: string; name: string; slug: string }>;
+      };
+      this.existingGrovesForRemote = data.groves ?? [];
+    } catch {
+      // Best-effort check; ignore errors
     }
   }
 
@@ -390,6 +441,23 @@ export class ScionPageGroveCreate extends LitElement {
                   </div>
                 </div>
 
+                ${this.existingGrovesForRemote.length > 0
+                  ? html`
+                      <div class="info-banner">
+                        <sl-icon name="info-circle"></sl-icon>
+                        <div>
+                          <strong>${this.existingGrovesForRemote.length} existing grove(s)</strong> share this git remote.
+                          A new grove will be created with a unique slug.
+                          <ul style="margin: 0.25rem 0 0; padding-left: 1.25rem;">
+                            ${this.existingGrovesForRemote.map(
+                              (g) => html`<li>${g.name} <span style="opacity: 0.7">(${g.slug})</span></li>`,
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+                    `
+                  : nothing}
+
                 <div class="form-field">
                   <label>Workspace Mode</label>
                   <sl-radio-group
@@ -495,7 +563,7 @@ export class ScionPageGroveCreate extends LitElement {
         @sl-after-hide=${() => { this.existingGroveId = null; }}
       >
         <div class="exists-dialog-body">
-          A grove for this repo already exists.
+          A grove with this ID already exists.
         </div>
         <sl-button
           slot="footer"

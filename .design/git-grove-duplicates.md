@@ -413,14 +413,14 @@ If this change needs to be reverted, groves that were created as duplicates (sha
 7. ✅ **Serial slug display:** `NextSlugFromMatches()` helper computes the next available slug client-side; shown in the "Register as new" option.
 8. ✅ **Tests:** Multi-match registration test (`TestGroveRegisterMultipleGitRemoteMatches`), `NextSlugFromMatches` unit tests, `ShowMatchingGrovesPrompt` auto-confirm test.
 
-### Phase 4: CLI and Hub-First Creation
+### Phase 4: CLI and Hub-First Creation ✅ COMPLETED
 
 **Goal:** Allow hub-first creation of duplicate groves.
 
-1. **Update `scion hub grove create`:** When the URL already has a grove, show existing groves and offer to create a new one with the serial-numbered slug.
-2. **Add `--slug` override validation:** Verify provided slug is unique before creation.
-3. **Update web UI grove creation:** When git URL matches existing groves, show them and allow creation of a new grove with the next serial slug.
-4. **Tests:** CLI integration tests for duplicate grove creation.
+1. ✅ **Update `scion hub grove create`:** When the URL already has a grove, shows existing groves and the proposed serial-numbered slug. Prompts for confirmation (respects `--yes` and `--non-interactive` flags). Updated command Long description to document multi-grove support.
+2. ✅ **Add `--slug` override validation:** When `--slug` is provided explicitly, validates uniqueness against the Hub API before creation. Returns a clear error if the slug is already in use.
+3. ✅ **Update web UI grove creation:** Git remote URL input triggers a debounced check for existing groves sharing the same remote. An info banner lists existing groves when found. Updated the "Grove Already Exists" dialog text (now only for ID-based idempotency).
+4. ✅ **Tests:** `TestCreateGrove_DuplicateGitRemote_SerialSlug` (serial slug assignment for duplicate git remotes), `TestCreateGrove_ExplicitSlug_Unique` (server assigns serial suffix when explicit slug is taken), `TestCreateGrove_ListByGitRemote_ReturnsMultiple` (list API returns all groves sharing a git remote).
 
 ### Phase 5: Cleanup and Documentation
 

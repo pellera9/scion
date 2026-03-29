@@ -2081,3 +2081,98 @@ func TestAutoAssociateGitHubInstallation_SkipsSuspended(t *testing.T) {
 	assert.Nil(t, grove.GitHubInstallationID,
 		"grove should not be associated with a suspended installation")
 }
+
+func TestCreateGrove_DuplicateGitRemote_SerialSlug(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Create the first grove for a git remote.
+	body1 := CreateGroveRequest{
+		Name:      "widgets",
+		GitRemote: "github.com/acme/widgets",
+	}
+	rec1 := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body1)
+	require.Equal(t, http.StatusCreated, rec1.Code, "body: %s", rec1.Body.String())
+
+	var grove1 store.Grove
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&grove1))
+	assert.Equal(t, "widgets", grove1.Slug)
+
+	// Create a second grove for the same git remote.
+	body2 := CreateGroveRequest{
+		Name:      "widgets",
+		GitRemote: "github.com/acme/widgets",
+	}
+	rec2 := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body2)
+	require.Equal(t, http.StatusCreated, rec2.Code, "body: %s", rec2.Body.String())
+
+	var grove2 store.Grove
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&grove2))
+	assert.Equal(t, "widgets-1", grove2.Slug, "second grove should get serial slug")
+	assert.Equal(t, "widgets (1)", grove2.Name, "display name should have serial qualifier")
+	assert.NotEqual(t, grove1.ID, grove2.ID, "groves should have different IDs")
+	assert.Equal(t, grove1.GitRemote, grove2.GitRemote, "groves should share the same git remote")
+
+	// Create a third grove.
+	body3 := CreateGroveRequest{
+		Name:      "widgets",
+		GitRemote: "github.com/acme/widgets",
+	}
+	rec3 := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body3)
+	require.Equal(t, http.StatusCreated, rec3.Code, "body: %s", rec3.Body.String())
+
+	var grove3 store.Grove
+	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&grove3))
+	assert.Equal(t, "widgets-2", grove3.Slug, "third grove should get next serial slug")
+	assert.Equal(t, "widgets (2)", grove3.Name)
+}
+
+func TestCreateGrove_ExplicitSlug_Unique(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Create first grove with an explicit slug.
+	body1 := CreateGroveRequest{
+		Name: "My Project",
+		Slug: "my-project",
+	}
+	rec1 := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body1)
+	require.Equal(t, http.StatusCreated, rec1.Code, "body: %s", rec1.Body.String())
+
+	var grove1 store.Grove
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&grove1))
+	assert.Equal(t, "my-project", grove1.Slug)
+
+	// Create second grove with the same explicit slug — should get serial suffix.
+	body2 := CreateGroveRequest{
+		Name: "My Project",
+		Slug: "my-project",
+	}
+	rec2 := doRequest(t, srv, http.MethodPost, "/api/v1/groves", body2)
+	require.Equal(t, http.StatusCreated, rec2.Code, "body: %s", rec2.Body.String())
+
+	var grove2 store.Grove
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&grove2))
+	assert.Equal(t, "my-project-1", grove2.Slug, "server should assign serial slug when explicit slug is taken")
+}
+
+func TestCreateGrove_ListByGitRemote_ReturnsMultiple(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Pre-create two groves for the same git remote.
+	for _, g := range []*store.Grove{
+		{ID: "g1", Name: "widgets", Slug: "widgets", GitRemote: "github.com/acme/widgets"},
+		{ID: "g2", Name: "widgets (1)", Slug: "widgets-1", GitRemote: "github.com/acme/widgets"},
+	} {
+		require.NoError(t, s.CreateGrove(ctx, g))
+	}
+
+	// List groves by git remote should return both.
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/groves?gitRemote=github.com/acme/widgets", nil)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp struct {
+		Groves []store.Grove `json:"groves"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Len(t, resp.Groves, 2, "listing by git remote should return all matching groves")
+}

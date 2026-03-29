@@ -272,8 +272,9 @@ var hubGroveCreateCmd = &cobra.Command{
 	Long: `Creates a new grove on the Hub anchored to a remote git repository.
 The grove can be used to start agents without a local checkout of the repository.
 
-The grove ID is deterministically derived from the normalized git URL, so
-creating a grove for the same URL is idempotent.
+Multiple groves can reference the same git URL. When the URL already has
+groves on the Hub, the existing groves are shown and the new grove receives
+a serial-numbered slug (e.g., acme-widgets-1, acme-widgets-2).
 
 Examples:
   # Create from HTTPS URL
@@ -1368,6 +1369,63 @@ func runHubGroveCreate(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// Check for existing groves with the same git remote.
+	existing, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+		GitRemote: normalized,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check existing groves: %w", err)
+	}
+
+	if len(existing.Groves) > 0 {
+		// Build matches for the prompt and compute next serial slug.
+		matches := make([]hubsync.GroveMatch, len(existing.Groves))
+		for i, g := range existing.Groves {
+			matches[i] = hubsync.GroveMatch{
+				ID:        g.ID,
+				Name:      g.Name,
+				Slug:      g.Slug,
+				GitRemote: g.GitRemote,
+			}
+		}
+		nextSlug := hubsync.NextSlugFromMatches(slug, matches)
+		if nextSlug != "" {
+			slug = nextSlug
+		}
+
+		if !isJSONOutput() {
+			fmt.Printf("\nThis git remote already has %d grove(s) on the Hub:\n\n", len(existing.Groves))
+			for _, g := range existing.Groves {
+				fmt.Printf("  - %s (slug: %s, ID: %s)\n", g.Name, g.Slug, g.ID)
+			}
+			fmt.Printf("\nA new grove will be created as '%s'.\n", slug)
+
+			if !autoConfirm {
+				if nonInteractive {
+					return fmt.Errorf("cannot create duplicate grove in non-interactive mode without --yes")
+				}
+				if !hubsync.ConfirmAction("Continue?", true, autoConfirm) {
+					fmt.Println("Cancelled.")
+					return nil
+				}
+			}
+		}
+	}
+
+	// Validate custom slug uniqueness. When --slug is provided explicitly,
+	// check if it's already taken before sending to the server.
+	if hubGroveCreateSlug != "" {
+		slugCheck, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+			Slug: hubGroveCreateSlug,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to validate slug: %w", err)
+		}
+		if len(slugCheck.Groves) > 0 {
+			return fmt.Errorf("slug %q is already in use by grove %q (ID: %s)", hubGroveCreateSlug, slugCheck.Groves[0].Name, slugCheck.Groves[0].ID)
+		}
+	}
 
 	// Create grove on the hub (server assigns ID)
 	grove, err := client.Groves().Create(ctx, &hubclient.CreateGroveRequest{
