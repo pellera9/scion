@@ -424,8 +424,8 @@ func TestNormalizeGitRemote(t *testing.T) {
 }
 
 func TestNormalizeGitRemote_CrossProtocolConsistency(t *testing.T) {
-	// All of these refer to the same repository and must produce the same normalized form
-	// and therefore the same UUID5 grove ID.
+	// All of these refer to the same repository and must produce the same normalized form.
+	// (HashGroveID is no longer used for grove IDs, but is retained for deterministic identifiers.)
 	variants := []string{
 		"git@github.com:ptone/gamegame.git",
 		"https://github.com/ptone/gamegame.git",
@@ -442,13 +442,13 @@ func TestNormalizeGitRemote_CrossProtocolConsistency(t *testing.T) {
 		}
 	}
 
-	// All should produce the same UUID5
+	// All should produce the same deterministic hash
 	ids := make(map[string]bool)
 	for _, url := range variants {
 		ids[HashGroveID(NormalizeGitRemote(url))] = true
 	}
 	if len(ids) != 1 {
-		t.Errorf("expected all URL variants to produce the same UUID5, got %d distinct IDs", len(ids))
+		t.Errorf("expected all URL variants to produce the same deterministic hash, got %d distinct IDs", len(ids))
 	}
 }
 

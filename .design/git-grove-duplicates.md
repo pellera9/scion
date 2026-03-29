@@ -422,12 +422,12 @@ If this change needs to be reverted, groves that were created as duplicates (sha
 3. ✅ **Update web UI grove creation:** Git remote URL input triggers a debounced check for existing groves sharing the same remote. An info banner lists existing groves when found. Updated the "Grove Already Exists" dialog text (now only for ID-based idempotency).
 4. ✅ **Tests:** `TestCreateGrove_DuplicateGitRemote_SerialSlug` (serial slug assignment for duplicate git remotes), `TestCreateGrove_ExplicitSlug_Unique` (server assigns serial suffix when explicit slug is taken), `TestCreateGrove_ListByGitRemote_ReturnsMultiple` (list API returns all groves sharing a git remote).
 
-### Phase 5: Cleanup and Documentation
+### Phase 5: Cleanup and Documentation ✅ COMPLETED
 
-1. **Audit all callers of `HashGroveID()`:** Ensure none rely on it for grove ID generation.
-2. **Verify `GetGroveByGitRemote()` is fully removed:** Confirm no remaining references in code, tests, or mocks.
-3. **Update design docs:** Mark `git-groves.md` section 2.2 as superseded by this design.
-4. **Update test fixtures:** Any test that assumes git remote uniqueness or deterministic IDs.
+1. ✅ **Audit all callers of `HashGroveID()`:** Verified no callers use it for grove ID generation. Only test references: `TestRegisterGrove_GitBacked_RandomID` (asserts IDs are NOT deterministic), `TestNormalizeGitRemote_CrossProtocolConsistency` and `TestHashGroveID` (test the utility function itself). Function docstring already documents it is not used for grove IDs.
+2. ✅ **Verify `GetGroveByGitRemote()` is fully removed:** Confirmed no remaining references in Go source code, tests, or mocks. Only references are in design documentation describing the migration history.
+3. ✅ **Update design docs:** Marked `git-groves.md` section 2.2 as superseded by this design, with strikethrough on outdated claims and a note pointing to this document.
+4. ✅ **Update test fixtures:** All tests already updated in prior phases. Clarified comments in `TestNormalizeGitRemote_CrossProtocolConsistency` to note `HashGroveID` is no longer used for grove IDs.
 
 ---
 

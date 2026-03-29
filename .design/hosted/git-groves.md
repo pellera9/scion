@@ -48,16 +48,20 @@ The normalization pipeline (`pkg/util/git.go:NormalizeGitRemote`) strips protoco
 
 ### 2.2 Grove ID: Hash of Normalized URL
 
-Rather than a system-generated UUID, the grove ID for git-anchored groves is a **deterministic hash of the normalized identity string**:
+> **SUPERSEDED:** This section describes the original deterministic ID model. Grove IDs are now
+> randomly generated UUIDs, and multiple groves may share the same git remote URL.
+> See `.design/git-grove-duplicates.md` for the current design.
+
+~~Rather than a system-generated UUID, the grove ID for git-anchored groves is a **deterministic hash of the normalized identity string**:~~
 
 ```
 ID = SHA-256(normalized_git_identity)[:16]   // e.g., "a1b2c3d4e5f67890"
 ```
 
-This means:
-- The same git URL always produces the same grove ID, regardless of which client creates it.
-- Idempotent creation — creating a grove for a URL that already exists is a no-op (or returns the existing grove).
-- No coordination needed between clients to agree on IDs.
+~~This means:~~
+- ~~The same git URL always produces the same grove ID, regardless of which client creates it.~~
+- ~~Idempotent creation — creating a grove for a URL that already exists is a no-op (or returns the existing grove).~~
+- ~~No coordination needed between clients to agree on IDs.~~
 
 The **full original URL** (as provided by the user) is also stored on the grove record for display and clone purposes, alongside the normalized form used for identity.
 
