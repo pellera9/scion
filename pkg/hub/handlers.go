@@ -634,10 +634,39 @@ func (s *Server) createAgentInGrove(
 			}
 		}
 	} else {
-		// No GCP identity specified — default to block to prevent leaking
-		// the host compute identity to agents.
-		agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
-			MetadataMode: store.GCPMetadataModeBlock,
+		// No explicit GCP identity — check grove default, then fall back to block.
+		groveSettings := groveSettingsFromAnnotations(grove)
+		switch groveSettings.DefaultGCPIdentityMode {
+		case store.GCPMetadataModePassthrough:
+			agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
+				MetadataMode: store.GCPMetadataModePassthrough,
+			}
+		case store.GCPMetadataModeAssign:
+			if groveSettings.DefaultGCPIdentityServiceAccountID != "" {
+				sa, err := s.store.GetGCPServiceAccount(ctx, groveSettings.DefaultGCPIdentityServiceAccountID)
+				if err == nil && sa.ScopeID == groveID && sa.Verified {
+					agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
+						MetadataMode:        store.GCPMetadataModeAssign,
+						ServiceAccountID:    sa.ID,
+						ServiceAccountEmail: sa.Email,
+						ProjectID:           sa.ProjectID,
+					}
+				} else {
+					// SA not found/invalid — fall back to block
+					agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
+						MetadataMode: store.GCPMetadataModeBlock,
+					}
+				}
+			} else {
+				agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
+					MetadataMode: store.GCPMetadataModeBlock,
+				}
+			}
+		default:
+			// No grove default or explicit "block" — secure default
+			agent.AppliedConfig.GCPIdentity = &store.GCPIdentityConfig{
+				MetadataMode: store.GCPMetadataModeBlock,
+			}
 		}
 	}
 

@@ -35,6 +35,10 @@ const (
 	groveSettingDefaultMaxModelCalls = "scion.io/default-max-model-calls"
 	groveSettingDefaultMaxDuration   = "scion.io/default-max-duration"
 
+	// Default GCP identity
+	groveSettingDefaultGCPIdentityMode = "scion.io/default-gcp-identity-mode"
+	groveSettingDefaultGCPIdentitySAID = "scion.io/default-gcp-identity-service-account-id"
+
 	// Default resource spec (flat keys)
 	groveSettingDefaultResourcesCPUReq = "scion.io/default-resources-cpu-request"
 	groveSettingDefaultResourcesMemReq = "scion.io/default-resources-memory-request"
@@ -146,6 +150,10 @@ func groveSettingsFromAnnotations(grove *store.Grove) *hubclient.GroveSettings {
 	}
 	settings.DefaultMaxDuration = grove.Annotations[groveSettingDefaultMaxDuration]
 
+	// Default GCP identity
+	settings.DefaultGCPIdentityMode = grove.Annotations[groveSettingDefaultGCPIdentityMode]
+	settings.DefaultGCPIdentityServiceAccountID = grove.Annotations[groveSettingDefaultGCPIdentitySAID]
+
 	// Default resources (flat annotation keys)
 	res := groveResourcesFromAnnotations(grove.Annotations)
 	if res != nil {
@@ -193,6 +201,10 @@ func applyGroveSettingsToAnnotations(grove *store.Grove, settings *hubclient.Gro
 	} else {
 		delete(grove.Annotations, groveSettingTelemetryEnabled)
 	}
+
+	// Default GCP identity
+	setOrDelete(grove.Annotations, groveSettingDefaultGCPIdentityMode, settings.DefaultGCPIdentityMode)
+	setOrDelete(grove.Annotations, groveSettingDefaultGCPIdentitySAID, settings.DefaultGCPIdentityServiceAccountID)
 
 	// Default agent limits
 	setOrDeleteInt(grove.Annotations, groveSettingDefaultMaxTurns, settings.DefaultMaxTurns)

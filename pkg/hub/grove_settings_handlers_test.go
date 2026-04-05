@@ -208,6 +208,71 @@ func TestApplyGroveDefaults_HarnessConfig(t *testing.T) {
 	})
 }
 
+func TestGroveSettings_DefaultGCPIdentity(t *testing.T) {
+	srv, s := testServer(t)
+	grove := createTestGroveForSettings(t, s)
+
+	putBody := hubclient.GroveSettings{
+		DefaultGCPIdentityMode:             "assign",
+		DefaultGCPIdentityServiceAccountID: "sa-123",
+	}
+
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/groves/"+grove.ID+"/settings", putBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var putResp hubclient.GroveSettings
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&putResp))
+	assert.Equal(t, "assign", putResp.DefaultGCPIdentityMode)
+	assert.Equal(t, "sa-123", putResp.DefaultGCPIdentityServiceAccountID)
+
+	// GET should return persisted values
+	rec = doRequest(t, srv, http.MethodGet, "/api/v1/groves/"+grove.ID+"/settings", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp hubclient.GroveSettings
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	assert.Equal(t, "assign", getResp.DefaultGCPIdentityMode)
+	assert.Equal(t, "sa-123", getResp.DefaultGCPIdentityServiceAccountID)
+}
+
+func TestGroveSettings_ClearDefaultGCPIdentity(t *testing.T) {
+	srv, s := testServer(t)
+	grove := createTestGroveForSettings(t, s)
+
+	// Set values first
+	putBody := hubclient.GroveSettings{
+		DefaultGCPIdentityMode:             "passthrough",
+		DefaultGCPIdentityServiceAccountID: "",
+	}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/groves/"+grove.ID+"/settings", putBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Clear by sending empty values
+	clearBody := hubclient.GroveSettings{}
+	rec = doRequest(t, srv, http.MethodPut, "/api/v1/groves/"+grove.ID+"/settings", clearBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp hubclient.GroveSettings
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Empty(t, resp.DefaultGCPIdentityMode)
+	assert.Empty(t, resp.DefaultGCPIdentityServiceAccountID)
+}
+
+func TestApplyGroveDefaults_GCPIdentityNotApplied(t *testing.T) {
+	// applyGroveDefaults does NOT apply GCP identity — that's handled
+	// directly in createAgentInGrove. This test verifies it doesn't interfere.
+	grove := &store.Grove{
+		Annotations: map[string]string{
+			"scion.io/default-gcp-identity-mode":               "passthrough",
+			"scion.io/default-gcp-identity-service-account-id": "sa-123",
+		},
+	}
+	ac := &store.AgentAppliedConfig{}
+	applyGroveDefaults(ac, grove)
+	// GCP identity should NOT be set by applyGroveDefaults
+	assert.Nil(t, ac.GCPIdentity)
+}
+
 func TestGroveSettings_NotFound(t *testing.T) {
 	srv, _ := testServer(t)
 

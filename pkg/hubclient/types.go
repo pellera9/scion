@@ -130,6 +130,10 @@ type GroveSettings struct {
 	DefaultMaxModelCalls int                `json:"defaultMaxModelCalls,omitempty"`
 	DefaultMaxDuration   string             `json:"defaultMaxDuration,omitempty"`
 	DefaultResources     *GroveResourceSpec `json:"defaultResources,omitempty"`
+
+	// Default GCP identity for new agents
+	DefaultGCPIdentityMode             string `json:"defaultGCPIdentityMode,omitempty"`             // "block", "passthrough", or "assign"
+	DefaultGCPIdentityServiceAccountID string `json:"defaultGCPIdentityServiceAccountID,omitempty"` // Required when mode is "assign"
 }
 
 // GroveResourceSpec defines default resource requirements at the grove level.

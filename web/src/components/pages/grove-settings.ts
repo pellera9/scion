@@ -23,7 +23,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import type { PageData, Grove, Template, AdminGroup, GitHubAppGroveStatus, GitHubTokenPermissions, RuntimeBroker, BrokerProfile } from '../../shared/types.js';
+import type { PageData, Grove, Template, AdminGroup, GitHubAppGroveStatus, GitHubTokenPermissions, RuntimeBroker, BrokerProfile, GCPServiceAccount } from '../../shared/types.js';
 import { can, canAny } from '../../shared/types.js';
 import { apiFetch, extractApiError } from '../../client/api.js';
 import '../shared/env-var-list.js';
@@ -51,6 +51,8 @@ interface GroveSettings {
   defaultMaxModelCalls?: number | undefined;
   defaultMaxDuration?: string | undefined;
   defaultResources?: GroveResourceSpec | undefined;
+  defaultGCPIdentityMode?: string | undefined;
+  defaultGCPIdentityServiceAccountID?: string | undefined;
 }
 
 interface HarnessConfigEntry {
@@ -174,6 +176,16 @@ export class ScionPageGroveSettings extends LitElement {
 
   @state()
   private configDefaultResDisk = '';
+
+  // Default GCP identity
+  @state()
+  private configDefaultGCPIdentityMode = '';
+
+  @state()
+  private configDefaultGCPIdentitySAID = '';
+
+  @state()
+  private gcpServiceAccounts: GCPServiceAccount[] = [];
 
   // GitHub App integration
   @state()
@@ -725,6 +737,7 @@ export class ScionPageGroveSettings extends LitElement {
     void this.loadHubTelemetryDefault();
     void this.loadHarnessConfigs();
     void this.loadBrokers();
+    void this.loadGCPServiceAccounts();
   }
 
   override disconnectedCallback(): void {
@@ -870,6 +883,8 @@ export class ScionPageGroveSettings extends LitElement {
         this.configDefaultResCpuLim = res?.limits?.cpu || '';
         this.configDefaultResMemLim = res?.limits?.memory || '';
         this.configDefaultResDisk = res?.disk || '';
+        this.configDefaultGCPIdentityMode = this.settings.defaultGCPIdentityMode || '';
+        this.configDefaultGCPIdentitySAID = this.settings.defaultGCPIdentityServiceAccountID || '';
       }
     } catch (err) {
       console.error('Failed to load grove settings:', err);
@@ -901,6 +916,20 @@ export class ScionPageGroveSettings extends LitElement {
       }
     } catch (err) {
       console.error('Failed to load harness configs:', err);
+    }
+  }
+
+  private async loadGCPServiceAccounts(): Promise<void> {
+    try {
+      const response = await apiFetch(
+        `/api/v1/groves/${this.groveId}/gcp-service-accounts`
+      );
+      if (response.ok) {
+        const data = (await response.json()) as { items?: GCPServiceAccount[] };
+        this.gcpServiceAccounts = (data.items || []).filter((sa) => sa.verified);
+      }
+    } catch (err) {
+      console.error('Failed to load GCP service accounts:', err);
     }
   }
 
@@ -945,6 +974,11 @@ export class ScionPageGroveSettings extends LitElement {
         defaultMaxModelCalls: this.configDefaultMaxModelCalls || undefined,
         defaultMaxDuration: this.configDefaultMaxDuration || undefined,
         defaultResources,
+        defaultGCPIdentityMode: this.configDefaultGCPIdentityMode || undefined,
+        defaultGCPIdentityServiceAccountID:
+          this.configDefaultGCPIdentityMode === 'assign'
+            ? this.configDefaultGCPIdentitySAID || undefined
+            : undefined,
       };
 
       const response = await apiFetch(`/api/v1/groves/${this.groveId}/settings`, {
@@ -1478,6 +1512,62 @@ export class ScionPageGroveSettings extends LitElement {
                   >Controls telemetry for agents in this grove. "Use hub default" inherits the server-level setting.</span
                 >
               </div>
+
+              <div class="config-field">
+                <label>Default Service Account</label>
+                <sl-select
+                  value=${this.configDefaultGCPIdentityMode || 'inherit'}
+                  ?disabled=${!canEdit}
+                  @sl-change=${(e: Event) => {
+                    const val = (e.target as HTMLSelectElement).value;
+                    this.configDefaultGCPIdentityMode = val === 'inherit' ? '' : val;
+                    if (val !== 'assign') {
+                      this.configDefaultGCPIdentitySAID = '';
+                    }
+                  }}
+                >
+                  <sl-option value="inherit">None (default to block)</sl-option>
+                  <sl-option value="block">Block</sl-option>
+                  <sl-option value="passthrough">Passthrough</sl-option>
+                  <sl-option value="assign">Assign Service Account</sl-option>
+                </sl-select>
+                <span class="field-help"
+                  >Controls GCP metadata server access for new agents. "Block" prevents access, "Passthrough" allows host identity, "Assign" binds a specific service account.</span
+                >
+              </div>
+
+              ${this.configDefaultGCPIdentityMode === 'assign'
+                ? html`
+                    <div class="config-field">
+                      <label>Service Account</label>
+                      <sl-select
+                        placeholder="Select a verified service account"
+                        clearable
+                        value=${this.configDefaultGCPIdentitySAID}
+                        ?disabled=${!canEdit}
+                        @sl-change=${(e: Event) => {
+                          this.configDefaultGCPIdentitySAID = (e.target as HTMLSelectElement).value;
+                        }}
+                      >
+                        ${this.gcpServiceAccounts.length > 0
+                          ? this.gcpServiceAccounts.map(
+                              (sa) => html`
+                                <sl-option value=${sa.id}>
+                                  ${sa.displayName || sa.email}
+                                  <small>(${sa.email})</small>
+                                </sl-option>
+                              `
+                            )
+                          : html`<sl-option value="" disabled
+                              >No verified service accounts available</sl-option
+                            >`}
+                      </sl-select>
+                      <span class="field-help"
+                        >The GCP service account to assign to new agents by default. Only verified accounts are shown.</span
+                      >
+                    </div>
+                  `
+                : ''}
             </div>
           </sl-tab-panel>
 
