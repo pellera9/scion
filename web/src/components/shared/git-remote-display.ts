@@ -54,10 +54,12 @@ export class ScionGitRemoteDisplay extends LitElement {
     a {
       color: inherit;
       text-decoration: none;
+      transition: color var(--scion-transition-fast, 150ms ease);
     }
 
     a:hover {
       color: var(--scion-primary, #3b82f6);
+      text-decoration: underline;
     }
 
     .decorator-icon {
