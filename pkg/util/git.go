@@ -169,6 +169,13 @@ func CreateWorktree(path, branch string) error {
 		return fmt.Errorf("failed to find repo root for worktree: %w", err)
 	}
 
+	// Guard: refuse to create worktrees inside a worktree.
+	// A worktree has a .git FILE (not directory) containing a gitdir pointer.
+	gitPath := filepath.Join(root, ".git")
+	if info, err := os.Stat(gitPath); err == nil && !info.IsDir() {
+		return fmt.Errorf("cannot create worktree: %s is itself a worktree (nested worktrees are not supported)", root)
+	}
+
 	// git worktree add --relative-paths -b <branch> <path>
 	// We run from root to ensure --relative-paths are calculated from root
 	cmd := exec.Command("git", "worktree", "add", "--relative-paths", "-b", branch, path)

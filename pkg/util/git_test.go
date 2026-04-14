@@ -302,6 +302,39 @@ func TestGitUtils(t *testing.T) {
 	})
 }
 
+func TestCreateWorktree_RejectsNestedWorktree(t *testing.T) {
+	// Create a repo, then a worktree of it
+	mainRepo := setupGitRepo(t)
+
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(originalWd)
+	if err := os.Chdir(mainRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create worktree inside the repo dir so RepoRootDir can find the parent repo
+	wtPath := filepath.Join(mainRepo, "child-wt")
+	if err := CreateWorktree(wtPath, "child-branch"); err != nil {
+		t.Fatalf("failed to create initial worktree: %v", err)
+	}
+
+	// Attempt to create a worktree inside the worktree — should fail
+	nestedPath := filepath.Join(wtPath, "nested-wt")
+	err = CreateWorktree(nestedPath, "nested-branch")
+	if err == nil {
+		t.Fatal("expected error creating worktree inside a worktree")
+	}
+	if !strings.Contains(err.Error(), "nested worktrees are not supported") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Clean up
+	_, _ = RemoveWorktree(wtPath, true)
+}
+
 func TestIsGitURL(t *testing.T) {
 	tests := []struct {
 		input string

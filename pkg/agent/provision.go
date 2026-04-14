@@ -243,6 +243,18 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 
 	groveName := config.GetGroveName(projectDir)
 	isGit := util.IsGitRepoDir(projectDir)
+	if isGit {
+		// Extra safety: verify we're in a real repo root, not a worktree.
+		// A worktree has a .git FILE (not directory) containing a gitdir pointer.
+		// Treat worktrees as non-git for provisioning to prevent nested worktree creation.
+		root, err := util.RepoRootDir(projectDir)
+		if err == nil {
+			gitPath := filepath.Join(root, ".git")
+			if info, statErr := os.Stat(gitPath); statErr == nil && !info.IsDir() {
+				isGit = false
+			}
+		}
+	}
 
 	// Verify .gitignore if in a repo
 	if isGit {
