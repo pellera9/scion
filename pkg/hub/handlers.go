@@ -4612,6 +4612,15 @@ func (s *Server) updateGrove(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
+	if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+		decision := s.authzService.CheckAccess(ctx, userIdent, groveResource(grove), ActionUpdate)
+		if !decision.Allowed {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden,
+				"You do not have permission to update this grove", nil)
+			return
+		}
+	}
+
 	var updates struct {
 		Name                   string            `json:"name,omitempty"`
 		Labels                 map[string]string `json:"labels,omitempty"`
@@ -4655,6 +4664,15 @@ func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, id string) 
 	if err != nil {
 		writeErrorFromErr(w, err, "")
 		return
+	}
+
+	if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+		decision := s.authzService.CheckAccess(ctx, userIdent, groveResource(grove), ActionDelete)
+		if !decision.Allowed {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden,
+				"You do not have permission to delete this grove", nil)
+			return
+		}
 	}
 
 	// Dispatch agent deletions to runtime brokers so containers are stopped
