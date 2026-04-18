@@ -75,6 +75,12 @@ The `offline` activity status occurs when an agent heartbeat has not been heard 
 
  Because an agent through its template can contain home folder content, env var definitions, and custom mounts that collectively exposes all configuration available to the harness (e.g., gemini-cli) scion-agents are not limited by the constraints of a harness' built-in sub-agent feature. While they are acting as sub-agents from the point-of-view of the Scion tool user-as-orchestrator, they are full agents in their capabilities.
 
+### Agent Ancestry & Identity Scoping
+
+To support multi-agent workflows, Scion implements **Agent Ancestry Chains**. When an agent spawns a child agent, the system tracks this relationship (`root` → `parent` → `child`). This ancestry chain is critical for **transitive access control**: any principal (user or agent) that exists in an agent's creation chain automatically gains access to manage that descendant agent. 
+
+Furthermore, agent identities are **strictly scoped by their grove** (e.g., `grove--agent`). This naming convention prevents name collisions across different workspaces and ensures agents can only interact with peers and progeny within their designated boundary. Progeny agents also receive granular secret access controls to prevent privilege escalation.
+
 ### Workspace Strategy
 
 Scion uses one of two strategies to give each agent an isolated git workspace, depending on whether a Hub is in use.

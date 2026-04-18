@@ -54,6 +54,7 @@ Controls the central Hub API server.
 | `port` | int | `9810` | HTTP port to listen on (standalone mode). In combined mode (`--enable-web`), the Hub API is served on the web port instead and this setting is ignored. |
 | `host` | string | `"0.0.0.0"` | Network interface to bind to. |
 | `public_url` | string | | The externally accessible URL of the Hub (used for callbacks). |
+| `gcp_project_id` | string | | GCP project ID used for minting GCP Service Accounts. Auto-detected if running on GCE/Cloud Run. |
 | `read_timeout` | duration | `"30s"` | HTTP read timeout. |
 | `write_timeout` | duration | `"60s"` | HTTP write timeout. |
 | `admin_emails` | list | `[]` | List of emails granted super-admin access. |
@@ -145,13 +146,14 @@ All server settings can be overridden via environment variables using the `SCION
 
 **Examples:**
 - `server.hub.port` -> `SCION_SERVER_HUB_PORT`
+- `server.hub.gcp_project_id` -> `SCION_SERVER_HUB_GCPPROJECTID`
 - `server.broker.enabled` -> `SCION_SERVER_BROKER_ENABLED`
 - `server.broker.container_hub_endpoint` -> `SCION_SERVER_BROKER_CONTAINERHUBENDPOINT`
 - `server.database.url` -> `SCION_SERVER_DATABASE_URL`
 - `server.auth.dev_mode` -> `SCION_SERVER_AUTH_DEVMODE`
 - `server.secrets.backend` -> `SCION_SERVER_SECRETS_BACKEND`
-- `server.secrets.gcp_project_id` -> `SCION_SERVER_SECRETS_GCP_PROJECT_ID`
-- `server.secrets.gcp_credentials` -> `SCION_SERVER_SECRETS_GCP_CREDENTIALS`
+- `server.secrets.gcp_project_id` -> `SCION_SERVER_SECRETS_GCPPROJECTID`
+- `server.secrets.gcp_credentials` -> `SCION_SERVER_SECRETS_GCPCREDENTIALS`
 
 ### Logging Environment Variables
 
