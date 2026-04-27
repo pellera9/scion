@@ -59,6 +59,15 @@ import re
 import sys
 from typing import Any
 
+# Add the bundle dir to sys.path so we can import the staged scion_harness
+# helper module (sibling file of this script). Mirrors the OpenCode harness.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import scion_harness  # type: ignore[import-not-found]
+except ImportError:
+    scion_harness = None  # type: ignore[assignment]
+
 CODEX_AUTH_FILE = "~/.codex/auth.json"
 CODEX_CONFIG_FILE = "~/.codex/config.toml"
 
@@ -341,6 +350,190 @@ def _reconcile_codex_toml(telemetry: dict[str, Any] | None, env: dict[str, str] 
     os.replace(tmp, config_path)
 
 
+# --- MCP server reconciliation ---------------------------------------------
+#
+# Codex consumes MCP servers from `[mcp_servers.<name>]` tables in
+# ~/.codex/config.toml. Stdio servers use command/args/env; HTTP servers use
+# url/http_headers (codex does not have a separate SSE transport — both `sse`
+# and `streamable-http` from the universal schema map to codex's HTTP server).
+#
+# Project-scope MCP (.codex/mcp_servers.json in the workspace) is not
+# implemented here yet; project-scoped entries are demoted to global with a
+# warning, matching the opencode harness's behavior.
+
+
+def _toml_escape(value: str) -> str:
+    """Escape a string for a TOML basic string literal."""
+    out = value.replace("\\", "\\\\").replace("\"", "\\\"")
+    return out.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+
+def _toml_inline_table(items: dict[str, str]) -> str:
+    """Render dict as a TOML inline table with sorted, quoted keys/values."""
+    parts = [f'"{_toml_escape(str(k))}" = "{_toml_escape(str(v))}"' for k, v in sorted(items.items())]
+    return "{ " + ", ".join(parts) + " }"
+
+
+def _toml_string_array(items: list[str]) -> str:
+    parts = [f'"{_toml_escape(str(item))}"' for item in items]
+    return "[" + ", ".join(parts) + "]"
+
+
+def _strip_mcp_sections(content: str) -> str:
+    """Remove every [mcp_servers.*] section so we can re-emit the merged set.
+
+    A section runs from its header line to the next bracketed top-level
+    section header (matching the existing `_strip_otel_section` shape). Any
+    blank lines immediately preceding the header are also consumed so the
+    file does not accumulate orphaned whitespace across reprovisions.
+    """
+    lines = content.split("\n")
+    keep = [True] * len(lines)
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("[mcp_servers.") and stripped.endswith("]"):
+            section_start = i
+            section_end = len(lines)
+            for j in range(i + 1, len(lines)):
+                t = lines[j].strip()
+                if t.startswith("[") and t.endswith("]"):
+                    section_end = j
+                    break
+            trim_start = section_start
+            while trim_start > 0 and lines[trim_start - 1].strip() == "" and keep[trim_start - 1]:
+                trim_start -= 1
+            for k in range(trim_start, section_end):
+                keep[k] = False
+            i = section_end
+        else:
+            i += 1
+    return "\n".join(line for line, k in zip(lines, keep) if k)
+
+
+def _build_mcp_section(name: str, spec: dict[str, Any]) -> str | None:
+    """Translate a universal MCPServerConfig into a TOML section. None on skip."""
+    transport = (spec.get("transport") or "").strip()
+    body: list[str] = [f"[mcp_servers.{name}]"]
+
+    if transport == "stdio":
+        cmd = spec.get("command")
+        if not isinstance(cmd, str) or not cmd:
+            print(f"codex provision: mcp server {name!r}: stdio transport missing command", file=sys.stderr)
+            return None
+        body.append(f'command = "{_toml_escape(cmd)}"')
+        args = spec.get("args") or []
+        if isinstance(args, list) and args:
+            body.append(f"args = {_toml_string_array([str(a) for a in args])}")
+        env = spec.get("env")
+        if isinstance(env, dict) and env:
+            body.append(f"env = {_toml_inline_table({str(k): str(v) for k, v in env.items()})}")
+    elif transport in ("sse", "streamable-http"):
+        url = spec.get("url")
+        if not isinstance(url, str) or not url:
+            print(f"codex provision: mcp server {name!r}: {transport} transport missing url", file=sys.stderr)
+            return None
+        body.append(f'url = "{_toml_escape(url)}"')
+        headers = spec.get("headers")
+        if isinstance(headers, dict) and headers:
+            body.append(f"http_headers = {_toml_inline_table({str(k): str(v) for k, v in headers.items()})}")
+    else:
+        print(f"codex provision: mcp server {name!r}: unsupported transport {transport!r}", file=sys.stderr)
+        return None
+
+    return "\n".join(body) + "\n"
+
+
+def _apply_mcp_servers(bundle: str) -> int:
+    """Reconcile [mcp_servers.*] sections in ~/.codex/config.toml from inputs/mcp-servers.json.
+
+    Returns the number of servers written. Any error is logged and treated
+    as a warning (per design Q4: provisioning should not fail on MCP issues).
+    """
+    if scion_harness is None:
+        servers = _read_mcp_servers_inline(bundle)
+    else:
+        try:
+            servers = scion_harness.read_mcp_servers(bundle)
+        except ValueError as exc:
+            print(f"codex provision: {exc}", file=sys.stderr)
+            return 0
+
+    if not servers:
+        return 0
+
+    sections: list[str] = []
+    for name in sorted(servers.keys()):
+        spec = servers[name]
+        if not isinstance(spec, dict):
+            continue
+        scope = (spec.get("scope") or "global").strip().lower()
+        if scope == "project":
+            print(
+                f"codex provision: mcp server {name!r} requested project scope; "
+                "registering globally (project-scoped MCP not implemented)",
+                file=sys.stderr,
+            )
+        section = _build_mcp_section(name, spec)
+        if section is not None:
+            sections.append(section)
+
+    if not sections:
+        return 0
+
+    codex_dir = _expand("~/.codex")
+    try:
+        os.makedirs(codex_dir, exist_ok=True)
+    except OSError as exc:
+        print(f"codex provision: could not create {codex_dir}: {exc}", file=sys.stderr)
+        return 0
+
+    config_path = os.path.join(codex_dir, "config.toml")
+    content = ""
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError as exc:
+            print(f"codex provision: existing config.toml not readable: {exc}", file=sys.stderr)
+            return 0
+
+    content = _strip_mcp_sections(content)
+    appended = "\n".join(sections)
+    content = content.rstrip("\n\t ") + "\n\n" + appended
+    content = content.strip() + "\n"
+
+    tmp = config_path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, config_path)
+    except OSError as exc:
+        print(f"codex provision: failed to write config.toml: {exc}", file=sys.stderr)
+        return 0
+
+    print(f"codex provision: applied {len(sections)} mcp server(s)", file=sys.stderr)
+    return len(sections)
+
+
+def _read_mcp_servers_inline(bundle: str) -> dict[str, dict[str, Any]]:
+    """Fallback when scion_harness import fails."""
+    path = os.path.join(bundle, "inputs", "mcp-servers.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        payload = _load_json(path) or {}
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"codex provision: invalid mcp-servers.json: {exc}", file=sys.stderr)
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    servers = payload.get("mcp_servers") or {}
+    if not isinstance(servers, dict):
+        return {}
+    return {str(k): v for k, v in servers.items() if isinstance(v, dict)}
+
+
 # --- Entry point -----------------------------------------------------------
 
 
@@ -437,6 +630,11 @@ def _provision(manifest: dict[str, Any]) -> int:
     except OSError as exc:
         print(f"codex provision: failed to write outputs: {exc}", file=sys.stderr)
         return EXIT_ERROR
+
+    # Apply universal MCP servers, if any. Failures here are warnings, not
+    # provisioning errors — auth is the hard gate (per design Q4: unsupported
+    # transports are best-effort warn-and-skip).
+    _apply_mcp_servers(bundle)
 
     print(f"codex provision: method={method}", file=sys.stderr)
     return EXIT_OK

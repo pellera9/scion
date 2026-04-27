@@ -61,6 +61,11 @@ capabilities:
     auth_file: { support: "yes" }
     oauth_token: { support: "no" }
     vertex_ai: { support: "no", reason: "Vertex AI auth is not supported for this harness" }
+  mcp:
+    stdio: { support: "yes" }
+    sse: { support: "partial", reason: "Codex maps SSE to its single HTTP server type (url + http_headers)" }
+    streamable_http: { support: "yes" }
+    project_scope: { support: "no", reason: "Project-scoped MCP (.codex/mcp_servers.json) is not implemented yet; project entries are demoted to global" }
 auth:
   default_type: api-key
   types:

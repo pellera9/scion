@@ -7,7 +7,7 @@ Today, configuring MCP servers for a scion template requires duplicating harness
 1. Define a `chromium` service in `scion-agent.yaml` (harness-agnostic)
 2. Add `mcpServers.chrome-devtools` to `harness-configs/claude-web/home/.claude.json` (Claude-specific JSON)
 3. Add `mcpServers.chrome-devtools` to `harness-configs/gemini-web/home/.gemini/settings.json` (Gemini-specific JSON)
-4. Know that OpenCode and Codex have different (or no) MCP configuration mechanisms
+4. Know that OpenCode and Codex have different MCP configuration mechanisms
 
 The MCP server definition itself is identical across harnesses — the same `command`, `args`, and `env` — but must be expressed in each harness's native config format and written to the correct file path. This creates several problems:
 
@@ -253,8 +253,10 @@ Each harness has its own native configuration format and file path for MCP serve
 - Scope: `global` only (Gemini does not distinguish project-scoped MCP)
 - Supports: `stdio` natively. SSE/HTTP support varies.
 
-**Codex** (`config.toml` or equivalent):
-- MCP support: Not currently documented. May need a shim or skip.
+**Codex CLI** (`~/.codex/mcp_servers.json` or `~/.codex/config.toml`):
+- Scope: `global` (`~/.codex/mcp_servers.json` or under `[mcp_servers.<name>]` in `~/.codex/config.toml`) and `project` (`.codex/mcp_servers.json` in workspace root).
+- Supports: `stdio` natively and `http` for remote servers.
+- Command-line equivalent: `codex mcp add <name> --env KEY=value -- <command> <args>`
 
 **OpenCode** (`opencode.json` or equivalent):
 - MCP support: TBD. Config format differs from Claude/Gemini.
@@ -282,7 +284,7 @@ ContainerScriptHarness.Provision()   (host-side staging only — no file writes)
                │
                ├── Claude:  reads inputs/mcp-servers.json, merges into .claude.json mcpServers
                ├── Gemini:  reads inputs/mcp-servers.json, merges into .gemini/settings.json mcpServers
-               ├── Codex:   reads inputs/mcp-servers.json, writes to codex-native location (TBD)
+               ├── Codex:   reads inputs/mcp-servers.json, writes to ~/.codex/mcp_servers.json
                └── Generic: reads inputs/mcp-servers.json, no-op or logs warning
 ```
 

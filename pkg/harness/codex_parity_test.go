@@ -813,3 +813,156 @@ func TestCodexProvisionScript_Integration_NoCreds(t *testing.T) {
 		t.Errorf("expected actionable no-creds message, got: %s", out)
 	}
 }
+
+// TestCodexProvisionScript_Integration_MCP runs the script with a staged
+// mcp-servers.json input and asserts it appends [mcp_servers.<name>] sections
+// to ~/.codex/config.toml, preserving any pre-existing user keys and stripping
+// stale MCP entries from a previous reprovision.
+func TestCodexProvisionScript_Integration_MCP(t *testing.T) {
+	pyPath, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+
+	dir := seedCodexDir(t)
+	scriptPath := filepath.Join(dir, "provision.py")
+	// Stage scion_harness.py next to provision.py so the script's import
+	// resolves — production sets this up via ContainerScriptHarness.Provision.
+	if err := os.WriteFile(filepath.Join(dir, "scion_harness.py"), SharedHarnessHelperSource(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	bundle := filepath.Join(home, ".scion", "harness")
+	codexDir := filepath.Join(home, ".codex")
+	for _, sub := range []string{"inputs", "outputs", "secrets"} {
+		if err := os.MkdirAll(filepath.Join(bundle, sub), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-existing config.toml carries an unrelated user key plus a stale
+	// [mcp_servers.gone] entry that must be stripped before the new set is
+	// written. This guards against two regressions at once: preservation of
+	// arbitrary user keys, and idempotent reprovisioning.
+	initialToml := `approval_policy = "never"
+custom_key = "keep-me"
+
+[mcp_servers.gone]
+command = "old-server"
+`
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(initialToml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage an api-key secret so the auth phase succeeds — provisioning bails
+	// on auth failure before reaching MCP application.
+	if err := os.WriteFile(filepath.Join(bundle, "secrets", "OPENAI_API_KEY"), []byte("sk-test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidates := map[string]any{
+		"schema_version": 1,
+		"env_vars":       []string{"OPENAI_API_KEY"},
+		"env_secret_files": map[string]string{
+			"OPENAI_API_KEY": filepath.Join(bundle, "secrets", "OPENAI_API_KEY"),
+		},
+	}
+	candBytes, _ := json.Marshal(candidates)
+	if err := os.WriteFile(filepath.Join(bundle, "inputs", "auth-candidates.json"), candBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// MCP inputs exercise stdio (with args + env), streamable-http (with
+	// headers), and a project-scoped entry that must be demoted to global.
+	mcp := map[string]any{
+		"schema_version": 1,
+		"mcp_servers": map[string]any{
+			"chrome-devtools": map[string]any{
+				"transport": "stdio",
+				"command":   "chrome-devtools-mcp",
+				"args":      []string{"--headless", "--browser-url", "http://localhost:9222"},
+				"env":       map[string]string{"DEBUG": "false"},
+			},
+			"remote_api": map[string]any{
+				"transport": "streamable-http",
+				"url":       "http://localhost:8080/mcp",
+				"headers":   map[string]string{"Authorization": "Bearer xyz"},
+			},
+			"workspace_db": map[string]any{
+				"transport": "stdio",
+				"command":   "db-mcp",
+				"scope":     "project",
+			},
+		},
+	}
+	mcpBytes, _ := json.MarshalIndent(mcp, "", "  ")
+	if err := os.WriteFile(filepath.Join(bundle, "inputs", "mcp-servers.json"), mcpBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := map[string]any{
+		"schema_version":     1,
+		"command":            "provision",
+		"agent_name":         "test-agent",
+		"agent_home":         home,
+		"agent_workspace":    "/workspace",
+		"harness_bundle_dir": bundle,
+		"harness_config":     map[string]any{"harness": "codex"},
+		"inputs":             map[string]any{},
+		"outputs": map[string]any{
+			"env":           filepath.Join(bundle, "outputs", "env.json"),
+			"resolved_auth": filepath.Join(bundle, "outputs", "resolved-auth.json"),
+		},
+	}
+	manifestBytes, _ := json.Marshal(manifest)
+	manifestPath := filepath.Join(bundle, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifestBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(pyPath, scriptPath, "--manifest", manifestPath)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("script failed: %v\noutput: %s", err, out)
+	}
+
+	tomlBytes, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tomlStr := string(tomlBytes)
+
+	for _, want := range []string{
+		`custom_key = "keep-me"`,
+		`[mcp_servers.chrome-devtools]`,
+		`command = "chrome-devtools-mcp"`,
+		`args = ["--headless", "--browser-url", "http://localhost:9222"]`,
+		`env = { "DEBUG" = "false" }`,
+		`[mcp_servers.remote_api]`,
+		`url = "http://localhost:8080/mcp"`,
+		`http_headers = { "Authorization" = "Bearer xyz" }`,
+		`[mcp_servers.workspace_db]`,
+		`command = "db-mcp"`,
+	} {
+		if !strings.Contains(tomlStr, want) {
+			t.Errorf("config.toml missing %q\ngot:\n%s", want, tomlStr)
+		}
+	}
+
+	// The stale [mcp_servers.gone] section must be stripped — a reprovision
+	// should not leave entries from previous template versions behind.
+	if strings.Contains(tomlStr, "[mcp_servers.gone]") || strings.Contains(tomlStr, `command = "old-server"`) {
+		t.Errorf("stale [mcp_servers.gone] section was not stripped:\n%s", tomlStr)
+	}
+
+	if !strings.Contains(string(out), "project scope") {
+		t.Errorf("expected project-scope warning in stderr, got: %s", out)
+	}
+	if !strings.Contains(string(out), "applied 3 mcp server(s)") {
+		t.Errorf("expected 'applied 3 mcp server(s)' summary, got: %s", out)
+	}
+}
