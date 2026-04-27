@@ -57,6 +57,11 @@ capabilities:
     auth_file: { support: "yes" }
     oauth_token: { support: "no" }
     vertex_ai: { support: "no", reason: "Vertex AI auth is not supported for this harness" }
+  mcp:
+    stdio: { support: "yes" }
+    sse: { support: "yes" }
+    streamable_http: { support: "yes" }
+    project_scope: { support: "no", reason: "OpenCode does not distinguish project-scoped MCP" }
 auth:
   default_type: api-key
   types:

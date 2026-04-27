@@ -333,6 +333,180 @@ func TestOpenCodeProvisionScript_Integration_HappyPath(t *testing.T) {
 	}
 }
 
+// TestOpenCodeProvisionScript_Integration_MCP runs the script with a staged
+// mcp-servers.json input and asserts it translates universal entries into
+// OpenCode's native shape (mcp.<name>.type=local|remote, command array, etc.).
+func TestOpenCodeProvisionScript_Integration_MCP(t *testing.T) {
+	pyPath, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available; skipping script integration test")
+	}
+
+	dir := seedOpenCodeDir(t)
+	scriptPath := filepath.Join(dir, "provision.py")
+	// Stage scion_harness.py next to provision.py so the import in the
+	// script resolves — production sets this up via ContainerScriptHarness.
+	if err := os.WriteFile(filepath.Join(dir, "scion_harness.py"), SharedHarnessHelperSource(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	bundle := filepath.Join(home, ".scion", "harness")
+	if err := os.MkdirAll(filepath.Join(bundle, "inputs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(bundle, "outputs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Copy the helper into the bundle too because production stages it there
+	// (ContainerScriptHarness.Provision writes it). The integration test
+	// invokes the script from the seeded harness-config dir, so the import
+	// works from there as well — staging here mirrors the production layout
+	// so changes to where the helper goes get caught.
+	if err := os.WriteFile(filepath.Join(bundle, "scion_harness.py"), SharedHarnessHelperSource(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := map[string]any{
+		"schema_version":     1,
+		"command":            "provision",
+		"agent_name":         "test-agent",
+		"agent_home":         home,
+		"agent_workspace":    "/workspace",
+		"harness_bundle_dir": bundle,
+		"harness_config":     map[string]any{"harness": "opencode"},
+		"inputs":             map[string]any{},
+		"outputs": map[string]any{
+			"env":           filepath.Join(bundle, "outputs", "env.json"),
+			"resolved_auth": filepath.Join(bundle, "outputs", "resolved-auth.json"),
+		},
+		"platform": map[string]any{"goos": "linux", "goarch": "amd64"},
+	}
+	manifestBytes, _ := json.MarshalIndent(manifest, "", "  ")
+	if err := os.WriteFile(filepath.Join(bundle, "manifest.json"), manifestBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Auth candidates so the auth phase succeeds (script bails before MCP
+	// otherwise).
+	candidates := map[string]any{
+		"schema_version":  1,
+		"explicit_type":   "",
+		"resolved_method": "container-script",
+		"env_vars":        []string{"OPENAI_API_KEY"},
+		"files":           []any{},
+	}
+	candBytes, _ := json.MarshalIndent(candidates, "", "  ")
+	if err := os.WriteFile(filepath.Join(bundle, "inputs", "auth-candidates.json"), candBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage MCP servers — exercise stdio, SSE, and a project-scoped entry
+	// (which should be silently demoted to global with a warning).
+	mcp := map[string]any{
+		"schema_version": 1,
+		"mcp_servers": map[string]any{
+			"chrome-devtools": map[string]any{
+				"transport": "stdio",
+				"command":   "chrome-devtools-mcp",
+				"args":      []string{"--headless", "--browser-url", "http://localhost:9222"},
+				"env":       map[string]string{"DEBUG": "false"},
+			},
+			"remote_api": map[string]any{
+				"transport": "sse",
+				"url":       "http://localhost:8080/mcp/sse",
+				"headers":   map[string]string{"Authorization": "Bearer xyz"},
+			},
+			"workspace_db": map[string]any{
+				"transport": "stdio",
+				"command":   "db-mcp",
+				"scope":     "project",
+			},
+		},
+	}
+	mcpBytes, _ := json.MarshalIndent(mcp, "", "  ")
+	if err := os.WriteFile(filepath.Join(bundle, "inputs", "mcp-servers.json"), mcpBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(pyPath, scriptPath, "--manifest", filepath.Join(bundle, "manifest.json"))
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("provision script failed: %v\noutput: %s", err, out)
+	}
+
+	opencodeJSONPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	data, err := os.ReadFile(opencodeJSONPath)
+	if err != nil {
+		t.Fatalf("opencode.json not written: %v\nscript output: %s", err, out)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("opencode.json invalid JSON: %v", err)
+	}
+	mcpBlock, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("opencode.json mcp block missing or wrong type: %v", cfg["mcp"])
+	}
+
+	// chrome-devtools: stdio -> local with combined command array.
+	chrome, ok := mcpBlock["chrome-devtools"].(map[string]any)
+	if !ok {
+		t.Fatalf("chrome-devtools entry missing")
+	}
+	if chrome["type"] != "local" {
+		t.Errorf("chrome-devtools type=%v want local", chrome["type"])
+	}
+	cmdArr, ok := chrome["command"].([]any)
+	if !ok {
+		t.Fatalf("chrome-devtools command is not an array: %T", chrome["command"])
+	}
+	wantCmd := []string{"chrome-devtools-mcp", "--headless", "--browser-url", "http://localhost:9222"}
+	if len(cmdArr) != len(wantCmd) {
+		t.Errorf("chrome-devtools command length=%d want %d (got %v)", len(cmdArr), len(wantCmd), cmdArr)
+	}
+	for i, c := range cmdArr {
+		if i >= len(wantCmd) {
+			break
+		}
+		if c != wantCmd[i] {
+			t.Errorf("chrome-devtools command[%d]=%v want %v", i, c, wantCmd[i])
+		}
+	}
+	envMap, ok := chrome["environment"].(map[string]any)
+	if !ok || envMap["DEBUG"] != "false" {
+		t.Errorf("chrome-devtools environment=%v want DEBUG=false", chrome["environment"])
+	}
+
+	// remote_api: sse -> remote with url and headers.
+	remote, ok := mcpBlock["remote_api"].(map[string]any)
+	if !ok {
+		t.Fatalf("remote_api entry missing")
+	}
+	if remote["type"] != "remote" {
+		t.Errorf("remote_api type=%v want remote", remote["type"])
+	}
+	if remote["url"] != "http://localhost:8080/mcp/sse" {
+		t.Errorf("remote_api url=%v", remote["url"])
+	}
+	headers, ok := remote["headers"].(map[string]any)
+	if !ok || headers["Authorization"] != "Bearer xyz" {
+		t.Errorf("remote_api headers=%v", remote["headers"])
+	}
+
+	// workspace_db: project-scoped stdio, treated as global with warning.
+	if _, ok := mcpBlock["workspace_db"]; !ok {
+		t.Errorf("workspace_db entry missing (project-scoped should be demoted to global, not dropped)")
+	}
+	if !strings.Contains(string(out), "project scope") {
+		t.Errorf("expected project-scope warning in stderr, got: %s", out)
+	}
+	if !strings.Contains(string(out), "applied 3 mcp server(s)") {
+		t.Errorf("expected 'applied 3 mcp server(s)' summary, got: %s", out)
+	}
+}
+
 // TestOpenCodeProvisionScript_Integration_NoCreds asserts the script exits
 // non-zero with an actionable message when nothing is staged. This matches
 // the compiled harness's pre-launch failure mode.

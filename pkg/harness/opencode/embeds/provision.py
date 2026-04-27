@@ -52,7 +52,17 @@ import os
 import sys
 from typing import Any
 
+# Add the bundle dir to sys.path so we can import the staged scion_harness
+# helper module (sibling file of this script).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import scion_harness  # type: ignore[import-not-found]
+except ImportError:
+    scion_harness = None  # type: ignore[assignment]
+
 OPENCODE_AUTH_FILE = "~/.local/share/opencode/auth.json"
+OPENCODE_CONFIG_FILE = "~/.config/opencode/opencode.json"
 
 VALID_AUTH_TYPES = ("api-key", "auth-file")
 
@@ -158,6 +168,141 @@ def _select_auth_method(explicit: str, env_keys: set[str], file_paths: list[str]
     )
 
 
+def _translate_mcp_server(name: str, spec: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate a universal MCPServerConfig into OpenCode's native shape.
+
+    OpenCode uses a different schema from Claude/Gemini:
+      - parent key is "mcp" (not "mcpServers")
+      - "type": "local" | "remote" instead of stdio/sse/streamable-http
+      - local entries take a single "command" array (no separate args)
+      - local env var key is "environment" (not "env")
+      - remote entries take url/headers/oauth
+
+    Returns None if the entry is unusable (warns to stderr).
+    """
+    transport = (spec.get("transport") or "").strip()
+    scope = (spec.get("scope") or "global").strip().lower()
+    if scope == "project":
+        # Capability advertises no project scope; treat as global with a note.
+        print(
+            f"opencode provision: mcp server {name!r} requested project scope; "
+            "OpenCode does not distinguish project-scoped MCP, registering globally",
+            file=sys.stderr,
+        )
+
+    if transport == "stdio":
+        cmd = spec.get("command")
+        if not isinstance(cmd, str) or not cmd:
+            print(f"opencode provision: mcp server {name!r}: stdio transport missing command", file=sys.stderr)
+            return None
+        args = spec.get("args") or []
+        if not isinstance(args, list):
+            args = []
+        full_command = [cmd] + [str(a) for a in args]
+        out: dict[str, Any] = {
+            "type": "local",
+            "command": full_command,
+        }
+        env = spec.get("env")
+        if isinstance(env, dict) and env:
+            out["environment"] = {str(k): str(v) for k, v in env.items()}
+        return out
+
+    if transport in ("sse", "streamable-http"):
+        url = spec.get("url")
+        if not isinstance(url, str) or not url:
+            print(f"opencode provision: mcp server {name!r}: {transport} transport missing url", file=sys.stderr)
+            return None
+        out = {
+            "type": "remote",
+            "url": url,
+        }
+        headers = spec.get("headers")
+        if isinstance(headers, dict) and headers:
+            out["headers"] = {str(k): str(v) for k, v in headers.items()}
+        return out
+
+    print(f"opencode provision: mcp server {name!r}: unsupported transport {transport!r}", file=sys.stderr)
+    return None
+
+
+def _apply_mcp_servers(bundle: str) -> int:
+    """Read inputs/mcp-servers.json and merge into ~/.config/opencode/opencode.json.
+
+    Returns the number of servers written. 0 if no MCP input is staged. Errors
+    are logged to stderr and do not fail provisioning (per design Q4: unsupported
+    transports warn-and-skip).
+    """
+    if scion_harness is None:
+        # The shared helper failed to import; fall back to inline I/O.
+        servers = _read_mcp_servers_inline(bundle)
+    else:
+        try:
+            servers = scion_harness.read_mcp_servers(bundle)
+        except ValueError as exc:
+            print(f"opencode provision: {exc}", file=sys.stderr)
+            return 0
+
+    if not servers:
+        return 0
+
+    translated: dict[str, dict[str, Any]] = {}
+    for name, spec in servers.items():
+        if not isinstance(spec, dict):
+            continue
+        native = _translate_mcp_server(name, spec)
+        if native is not None:
+            translated[name] = native
+
+    if not translated:
+        return 0
+
+    config_path = _expand(OPENCODE_CONFIG_FILE)
+    config_data: dict[str, Any] = {}
+    if os.path.isfile(config_path):
+        try:
+            existing = _load_json(config_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"opencode provision: existing opencode.json not readable, recreating: {exc}", file=sys.stderr)
+            existing = {}
+        if isinstance(existing, dict):
+            config_data = existing
+
+    mcp_block = config_data.get("mcp")
+    if not isinstance(mcp_block, dict):
+        mcp_block = {}
+    for name, native in translated.items():
+        mcp_block[name] = native
+    config_data["mcp"] = mcp_block
+
+    try:
+        _write_json(config_path, config_data)
+    except OSError as exc:
+        print(f"opencode provision: failed to write opencode.json: {exc}", file=sys.stderr)
+        return 0
+
+    print(f"opencode provision: applied {len(translated)} mcp server(s)", file=sys.stderr)
+    return len(translated)
+
+
+def _read_mcp_servers_inline(bundle: str) -> dict[str, dict[str, Any]]:
+    """Fallback when scion_harness import fails."""
+    path = os.path.join(bundle, "inputs", "mcp-servers.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        payload = _load_json(path) or {}
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"opencode provision: invalid mcp-servers.json: {exc}", file=sys.stderr)
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    servers = payload.get("mcp_servers") or {}
+    if not isinstance(servers, dict):
+        return {}
+    return {str(k): v for k, v in servers.items() if isinstance(v, dict)}
+
+
 def _provision(manifest: dict[str, Any]) -> int:
     bundle = manifest.get("harness_bundle_dir") or "$HOME/.scion/harness"
     bundle = _expand(bundle)
@@ -215,6 +360,11 @@ def _provision(manifest: dict[str, Any]) -> int:
     except OSError as exc:
         print(f"opencode provision: failed to write outputs: {exc}", file=sys.stderr)
         return EXIT_ERROR
+
+    # Apply universal MCP servers, if any. Failures here are warnings, not
+    # provisioning errors — auth is the hard gate (per design Q4: unsupported
+    # transports are best-effort warn-and-skip).
+    _apply_mcp_servers(bundle)
 
     print(f"opencode provision: method={method}", file=sys.stderr)
     return EXIT_OK
