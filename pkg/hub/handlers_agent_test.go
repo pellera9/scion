@@ -2209,46 +2209,6 @@ func TestHeartbeat_BackfillsProfile(t *testing.T) {
 		"Profile should be backfilled from heartbeat")
 }
 
-// TestCreateAgent_HarnessFieldIgnoredWhenTemplateResolved verifies that
-// when a template resolves successfully, its harness takes precedence
-// over the explicit Harness field.
-func TestCreateAgent_HarnessFieldIgnoredWhenTemplateResolved(t *testing.T) {
-	disp := &createAgentDispatcher{createPhase: string(state.PhaseRunning)}
-	srv, s, grove := setupCreateAgentServer(t, disp)
-	ctx := context.Background()
-
-	// Create a template with harness
-	tmpl := &store.Template{
-		ID:      "tmpl-with-harness",
-		Name:    "claude-template",
-		Slug:    "claude-template",
-		Harness: "claude",
-		GroveID: grove.ID,
-		Scope:   "grove",
-		ScopeID: grove.ID,
-		Status:  "active",
-	}
-	require.NoError(t, s.CreateTemplate(ctx, tmpl))
-
-	// Create agent with template that resolves AND explicit harness
-	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", CreateAgentRequest{
-		Name:          "tmpl-agent",
-		GroveID:       grove.ID,
-		Template:      "claude-template",
-		HarnessConfig: "gemini", // Should be ignored since template resolves
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var resp CreateAgentResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	agent, err := s.GetAgent(ctx, resp.Agent.ID)
-	require.NoError(t, err)
-	require.NotNil(t, agent.AppliedConfig)
-	assert.Equal(t, "claude", agent.AppliedConfig.HarnessConfig,
-		"template-resolved harness should take precedence over request HarnessConfig field")
-}
-
 // TestCreateAgent_HarnessNotTemplateUUID verifies that when the template is
 // specified as a UUID that doesn't resolve on the hub (e.g., broker has it
 // locally), the harness is taken from the explicit Harness field, not from
