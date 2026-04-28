@@ -294,6 +294,56 @@ user: scion
 	}
 }
 
+func TestFindHarnessConfigDir_FallsThrough_BrokenDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Setup valid global harness-config
+	globalHCDir := filepath.Join(tmpDir, DotScion, harnessConfigsDirName, "opencode")
+	if err := os.MkdirAll(globalHCDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	globalCfg := "harness: opencode\nimage: global-opencode:latest\nuser: scion\n"
+	if err := os.WriteFile(filepath.Join(globalHCDir, "config.yaml"), []byte(globalCfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Template has harness-configs/opencode/ directory but NO config.yaml
+	templateDir := filepath.Join(tmpDir, "templates", "web-dev")
+	brokenTplHCDir := filepath.Join(templateDir, harnessConfigsDirName, "opencode")
+	if err := os.MkdirAll(brokenTplHCDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should fall through broken template dir to global
+	hc, err := FindHarnessConfigDir("opencode", "", templateDir)
+	if err != nil {
+		t.Fatalf("expected fallthrough to global, got error: %v", err)
+	}
+	if hc.Config.Image != "global-opencode:latest" {
+		t.Errorf("expected global image, got %q", hc.Config.Image)
+	}
+
+	// Grove has harness-configs/opencode/ directory but NO config.yaml
+	grovePath := filepath.Join(tmpDir, "grove")
+	brokenGroveHCDir := filepath.Join(grovePath, harnessConfigsDirName, "opencode")
+	if err := os.MkdirAll(brokenGroveHCDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should fall through broken grove dir to global
+	hc, err = FindHarnessConfigDir("opencode", grovePath)
+	if err != nil {
+		t.Fatalf("expected fallthrough from broken grove to global, got error: %v", err)
+	}
+	if hc.Config.Image != "global-opencode:latest" {
+		t.Errorf("expected global image after grove fallthrough, got %q", hc.Config.Image)
+	}
+}
+
 func TestListHarnessConfigDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -85,11 +85,15 @@ func LoadHarnessConfigDir(dirPath string) (*HarnessConfigDir, error) {
 // subdirectories are checked first (highest precedence), per the harness-agnostic
 // template design (§3.4).
 func FindHarnessConfigDir(name string, grovePath string, templatePaths ...string) (*HarnessConfigDir, error) {
-	// Check template-level first (highest precedence)
+	// Check template-level first (highest precedence).
+	// If the directory exists but is invalid (e.g. missing config.yaml),
+	// fall through to grove/global rather than returning an error.
 	for _, tplPath := range templatePaths {
 		tplHarnessConfigDir := filepath.Join(tplPath, harnessConfigsDirName, name)
 		if info, err := os.Stat(tplHarnessConfigDir); err == nil && info.IsDir() {
-			return LoadHarnessConfigDir(tplHarnessConfigDir)
+			if hcDir, err := LoadHarnessConfigDir(tplHarnessConfigDir); err == nil {
+				return hcDir, nil
+			}
 		}
 	}
 
@@ -97,7 +101,9 @@ func FindHarnessConfigDir(name string, grovePath string, templatePaths ...string
 	if grovePath != "" {
 		groveHarnessConfigDir := filepath.Join(grovePath, harnessConfigsDirName, name)
 		if info, err := os.Stat(groveHarnessConfigDir); err == nil && info.IsDir() {
-			return LoadHarnessConfigDir(groveHarnessConfigDir)
+			if hcDir, err := LoadHarnessConfigDir(groveHarnessConfigDir); err == nil {
+				return hcDir, nil
+			}
 		}
 	}
 
@@ -106,7 +112,9 @@ func FindHarnessConfigDir(name string, grovePath string, templatePaths ...string
 	if err == nil {
 		globalHarnessConfigDir := filepath.Join(globalDir, harnessConfigsDirName, name)
 		if info, err := os.Stat(globalHarnessConfigDir); err == nil && info.IsDir() {
-			return LoadHarnessConfigDir(globalHarnessConfigDir)
+			if hcDir, err := LoadHarnessConfigDir(globalHarnessConfigDir); err == nil {
+				return hcDir, nil
+			}
 		}
 	}
 
