@@ -236,6 +236,72 @@ func TestOpenCodeContainerScriptHarnessStagesScript(t *testing.T) {
 	}
 }
 
+// TestOpenCodeContainerScriptReconcilesMissingBundle verifies that calling
+// Provision() on an agent home that lacks the container-script bundle (as
+// happens for agents provisioned before the builtin→container-script
+// migration) stages the hook wrapper, provision.py, and manifest. This
+// mirrors the reconciliation path added in run.go.
+func TestOpenCodeContainerScriptReconcilesMissingBundle(t *testing.T) {
+	dir := seedOpenCodeDir(t)
+
+	hc, err := config.LoadHarnessConfigDir(dir)
+	if err != nil {
+		t.Fatalf("LoadHarnessConfigDir: %v", err)
+	}
+	scripted, err := NewContainerScriptHarness(dir, hc.Config)
+	if err != nil {
+		t.Fatalf("NewContainerScriptHarness: %v", err)
+	}
+
+	agentHome := t.TempDir()
+
+	// Simulate an agent home created by the builtin OpenCode{} harness:
+	// the config dir exists but there is no .scion/harness/ bundle and no
+	// pre-start hook wrapper.
+	configDir := filepath.Join(agentHome, ".config", "opencode")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "opencode.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Confirm the hook wrapper does NOT exist yet.
+	hookWrapper := filepath.Join(agentHome, ".scion", "hooks", "pre-start.d", "20-harness-provision")
+	if _, err := os.Stat(hookWrapper); err == nil {
+		t.Fatal("hook wrapper should not exist before reconciliation")
+	}
+
+	// Call Provision (the reconciliation path).
+	if err := scripted.Provision(context.Background(), "migrated-agent", agentHome, agentHome, "/workspace"); err != nil {
+		t.Fatalf("Provision (reconciliation): %v", err)
+	}
+
+	// Hook wrapper must now exist.
+	wrapperBytes, err := os.ReadFile(hookWrapper)
+	if err != nil {
+		t.Fatalf("hook wrapper not staged after reconciliation: %v", err)
+	}
+	if !strings.Contains(string(wrapperBytes), "sciontool harness provision") {
+		t.Errorf("wrapper does not invoke sciontool harness provision: %s", wrapperBytes)
+	}
+
+	// provision.py must be staged.
+	if _, err := os.Stat(filepath.Join(agentHome, ".scion", "harness", "provision.py")); err != nil {
+		t.Errorf("provision.py not staged: %v", err)
+	}
+
+	// manifest.json must be present.
+	if _, err := os.Stat(filepath.Join(agentHome, ".scion", "harness", "manifest.json")); err != nil {
+		t.Errorf("manifest.json not staged: %v", err)
+	}
+
+	// Pre-existing opencode.json must be preserved.
+	if _, err := os.Stat(filepath.Join(configDir, "opencode.json")); err != nil {
+		t.Errorf("pre-existing opencode.json was removed: %v", err)
+	}
+}
+
 // TestOpenCodeProvisionScript_Integration_HappyPath runs the actual Python
 // script against a synthetic manifest and validates outputs. We skip when
 // python3 is unavailable so the test is portable, and use a tightly-scoped

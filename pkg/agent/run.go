@@ -328,6 +328,7 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	// the legacy New() shim using the bare harness type.
 	var h api.Harness
 	var harnessConfigRevision string
+	var resolvedImpl string
 	if harnessConfigName != "" {
 		var resolveTemplatePaths []string
 		if opts.Template != "" {
@@ -353,6 +354,7 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 			h = harness.New(harnessName)
 		} else {
 			h = resolved.Harness
+			resolvedImpl = resolved.Implementation
 			if resolved.ConfigDir != nil {
 				harnessConfigRevision = config.ComputeHarnessConfigRevision(resolved.ConfigDir.Path)
 			}
@@ -360,6 +362,16 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	} else {
 		h = harness.New(harnessName)
+	}
+
+	// Reconcile the container-script bundle for existing agents. Agents
+	// provisioned before the builtin→container-script migration (or
+	// upgraded in-place) may lack the hook wrapper and provision.py.
+	// Provision() is idempotent and stages the missing files.
+	if resolvedImpl == "container-script" {
+		if err := h.Provision(ctx, opts.Name, agentDir, agentHome, agentWorkspace); err != nil {
+			util.Debugf("Start: container-script reconciliation failed: %v", err)
+		}
 	}
 
 	// 3. Resolve credentials via new auth pipeline
