@@ -27,6 +27,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -58,6 +61,7 @@ type GroveWorkspaceListResponse struct {
 	Files      []GroveWorkspaceFile `json:"files"`
 	TotalSize  int64                `json:"totalSize"`
 	TotalCount int                  `json:"totalCount"`
+	HasMore    bool                 `json:"hasMore,omitempty"`
 }
 
 // SharedDirListResponse extends the workspace list response with provider metadata.
@@ -65,7 +69,133 @@ type SharedDirListResponse struct {
 	Files         []GroveWorkspaceFile `json:"files"`
 	TotalSize     int64                `json:"totalSize"`
 	TotalCount    int                  `json:"totalCount"`
+	HasMore       bool                 `json:"hasMore,omitempty"`
 	ProviderCount int                  `json:"providerCount,omitempty"`
+}
+
+// FileSearchResult holds the result of a workspace file search.
+type FileSearchResult struct {
+	Files      []GroveWorkspaceFile
+	TotalSize  int64
+	TotalCount int
+	HasMore    bool
+}
+
+// FileSearcher searches a workspace directory for files matching an optional query.
+// The interface exists so that an indexed implementation can be swapped in later
+// without touching the HTTP handlers.
+type FileSearcher interface {
+	Search(root, query string, limit int) (FileSearchResult, error)
+}
+
+// defaultFileSearcher is the package-level FileSearcher used by the handlers.
+var defaultFileSearcher FileSearcher = walkDirSearcher{}
+
+// walkDirSearcher implements FileSearcher using filepath.WalkDir.
+type walkDirSearcher struct{}
+
+func (walkDirSearcher) Search(root, query string, limit int) (FileSearchResult, error) {
+	var matcher func(string) bool
+	if query != "" {
+		if re, err := regexp.Compile("(?i)" + query); err == nil {
+			matcher = re.MatchString
+		} else {
+			matcher = fuzzyMatch(query)
+		}
+	}
+
+	var allFiles []GroveWorkspaceFile
+	var totalSize int64
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if relPath == "." || d.IsDir() {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		totalSize += info.Size()
+		if matcher == nil || matcher(relPath) {
+			allFiles = append(allFiles, GroveWorkspaceFile{
+				Path:    relPath,
+				Size:    info.Size(),
+				ModTime: info.ModTime(),
+				Mode:    info.Mode().String(),
+			})
+		}
+		return nil
+	})
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			return FileSearchResult{Files: []GroveWorkspaceFile{}}, nil
+		}
+		return FileSearchResult{}, err
+	}
+
+	if allFiles == nil {
+		allFiles = []GroveWorkspaceFile{}
+	}
+
+	// Sort by modTime descending (most recently modified first).
+	sort.Slice(allFiles, func(i, j int) bool {
+		return allFiles[i].ModTime.After(allFiles[j].ModTime)
+	})
+
+	hasMore := len(allFiles) > limit
+	files := allFiles
+	if hasMore {
+		files = allFiles[:limit]
+	}
+
+	return FileSearchResult{
+		Files:      files,
+		TotalSize:  totalSize,
+		TotalCount: len(allFiles),
+		HasMore:    hasMore,
+	}, nil
+}
+
+// fuzzyMatch returns a matcher that checks whether every character in pattern
+// appears in order (case-insensitive) in the candidate string.
+func fuzzyMatch(pattern string) func(string) bool {
+	lower := strings.ToLower(pattern)
+	return func(s string) bool {
+		haystack := strings.ToLower(s)
+		si := 0
+		for _, ch := range lower {
+			idx := strings.IndexRune(haystack[si:], ch)
+			if idx == -1 {
+				return false
+			}
+			si += idx + utf8.RuneLen(ch)
+		}
+		return true
+	}
+}
+
+// intQueryParam parses an integer query parameter, applying a default and a cap.
+func intQueryParam(r *http.Request, name string, defaultVal, maxVal int) int {
+	s := r.URL.Query().Get(name)
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v <= 0 {
+		return defaultVal
+	}
+	if v > maxVal {
+		return maxVal
+	}
+	return v
 }
 
 // GroveWorkspaceUploadResponse is the response for uploading files to a grove workspace.
@@ -97,7 +227,7 @@ func (s *Server) handleGroveWorkspace(w http.ResponseWriter, r *http.Request, gr
 
 	switch {
 	case r.Method == http.MethodGet && filePath == "":
-		s.handleGroveWorkspaceList(w, workspacePath)
+		s.handleGroveWorkspaceList(w, r, workspacePath)
 	case r.Method == http.MethodGet && filePath != "":
 		s.handleGroveWorkspaceDownload(w, r, workspacePath, filePath)
 	case r.Method == http.MethodPost && filePath == "":
@@ -112,117 +242,45 @@ func (s *Server) handleGroveWorkspace(w http.ResponseWriter, r *http.Request, gr
 }
 
 // handleGroveWorkspaceList lists files in a grove workspace.
-func (s *Server) handleGroveWorkspaceList(w http.ResponseWriter, workspacePath string) {
-	var files []GroveWorkspaceFile
-	var totalSize int64
+// Accepts optional query parameters:
+//   - q:     filter pattern (regex or fuzzy fallback, case-insensitive)
+//   - limit: max results (default 500, cap 2000)
+func (s *Server) handleGroveWorkspaceList(w http.ResponseWriter, r *http.Request, workspacePath string) {
+	query := r.URL.Query().Get("q")
+	limit := intQueryParam(r, "limit", 500, 2000)
 
-	err := filepath.WalkDir(workspacePath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Get the relative path
-		relPath, err := filepath.Rel(workspacePath, path)
-		if err != nil {
-			return err
-		}
-
-		// Skip the root directory itself
-		if relPath == "." {
-			return nil
-		}
-
-		// Skip directories (only list files)
-		if d.IsDir() {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		files = append(files, GroveWorkspaceFile{
-			Path:    relPath,
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			Mode:    info.Mode().String(),
-		})
-		totalSize += info.Size()
-
-		return nil
-	})
-
+	result, err := defaultFileSearcher.Search(workspacePath, query, limit)
 	if err != nil {
-		// If the workspace directory doesn't exist yet, return empty list
-		if os.IsNotExist(err) {
-			writeJSON(w, http.StatusOK, GroveWorkspaceListResponse{
-				Files:      []GroveWorkspaceFile{},
-				TotalSize:  0,
-				TotalCount: 0,
-			})
-			return
-		}
 		InternalError(w)
 		return
-	}
-
-	if files == nil {
-		files = []GroveWorkspaceFile{}
 	}
 
 	writeJSON(w, http.StatusOK, GroveWorkspaceListResponse{
-		Files:      files,
-		TotalSize:  totalSize,
-		TotalCount: len(files),
+		Files:      result.Files,
+		TotalSize:  result.TotalSize,
+		TotalCount: result.TotalCount,
+		HasMore:    result.HasMore,
 	})
 }
 
-// handleSharedDirFileList wraps handleGroveWorkspaceList, adding provider metadata
+// handleSharedDirFileList lists files in a shared directory, adding provider metadata
 // to the response so the frontend can show multi-broker warnings.
-func (s *Server) handleSharedDirFileList(w http.ResponseWriter, sharedDirPath string, res *sharedDirResolution) {
-	var files []GroveWorkspaceFile
-	var totalSize int64
+// Accepts the same optional query parameters as handleGroveWorkspaceList (q, limit).
+func (s *Server) handleSharedDirFileList(w http.ResponseWriter, r *http.Request, sharedDirPath string, res *sharedDirResolution) {
+	query := r.URL.Query().Get("q")
+	limit := intQueryParam(r, "limit", 500, 2000)
 
-	err := filepath.WalkDir(sharedDirPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel(sharedDirPath, path)
-		if err != nil {
-			return err
-		}
-		if relPath == "." || d.IsDir() {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil {
-			return infoErr
-		}
-		files = append(files, GroveWorkspaceFile{
-			Path:    relPath,
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			Mode:    info.Mode().String(),
-		})
-		totalSize += info.Size()
-		return nil
-	})
-
-	if err != nil && os.IsNotExist(err) {
-		files = []GroveWorkspaceFile{}
-	} else if err != nil {
+	result, err := defaultFileSearcher.Search(sharedDirPath, query, limit)
+	if err != nil {
 		InternalError(w)
 		return
 	}
-	if files == nil {
-		files = []GroveWorkspaceFile{}
-	}
 
 	writeJSON(w, http.StatusOK, SharedDirListResponse{
-		Files:         files,
-		TotalSize:     totalSize,
-		TotalCount:    len(files),
+		Files:         result.Files,
+		TotalSize:     result.TotalSize,
+		TotalCount:    result.TotalCount,
+		HasMore:       result.HasMore,
 		ProviderCount: res.ProviderCount,
 	})
 }
@@ -646,7 +704,7 @@ func (s *Server) handleSharedDirFiles(w http.ResponseWriter, r *http.Request, gr
 
 	switch {
 	case r.Method == http.MethodGet && filePath == "":
-		s.handleSharedDirFileList(w, sharedDirPath, resolution)
+		s.handleSharedDirFileList(w, r, sharedDirPath, resolution)
 	case r.Method == http.MethodGet && filePath != "":
 		s.handleGroveWorkspaceDownload(w, r, sharedDirPath, filePath)
 	case r.Method == http.MethodPost && filePath == "":

@@ -47,6 +47,7 @@ export interface FileListResult {
   files: FileEntry[];
   totalSize: number;
   totalCount: number;
+  hasMore?: boolean;
   providerCount?: number;
 }
 
@@ -60,8 +61,15 @@ export interface FileListResult {
  * Each implementation maps file operations to the appropriate API paths.
  */
 export interface FileBrowserDataSource {
-  /** List all files. */
-  listFiles(): Promise<FileListResult>;
+  /** List files. When limit is provided the backend returns the most recently modified files up to that count. */
+  listFiles(opts?: { limit?: number }): Promise<FileListResult>;
+
+  /**
+   * Search files by query string (regex or fuzzy fallback). Optional: data sources that
+   * operate on small in-memory sets (e.g. templates) may omit this; the component
+   * degrades gracefully and relies on local filtering only.
+   */
+  searchFiles?(query: string, limit?: number, signal?: AbortSignal): Promise<FileListResult>;
 
   /** Delete a file by path. */
   deleteFile(path: string): Promise<void>;
@@ -103,8 +111,21 @@ export class WorkspaceFileBrowserDataSource implements FileBrowserDataSource {
     this.basePath = `/api/v1/groves/${groveId}/workspace/files`;
   }
 
-  async listFiles(): Promise<FileListResult> {
-    const response = await apiFetch(this.basePath);
+  async listFiles(opts?: { limit?: number }): Promise<FileListResult> {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    const url = params.size ? `${this.basePath}?${params}` : this.basePath;
+    const response = await apiFetch(url);
+    if (!response.ok) {
+      throw new Error(await extractApiError(response, `HTTP ${response.status}`));
+    }
+    return (await response.json()) as FileListResult;
+  }
+
+  async searchFiles(query: string, limit?: number, signal?: AbortSignal): Promise<FileListResult> {
+    const params = new URLSearchParams({ q: query });
+    if (limit !== undefined) params.set('limit', String(limit));
+    const response = await apiFetch(`${this.basePath}?${params}`, { signal });
     if (!response.ok) {
       throw new Error(await extractApiError(response, `HTTP ${response.status}`));
     }
@@ -158,8 +179,21 @@ export class SharedDirFileBrowserDataSource implements FileBrowserDataSource {
     this.basePath = `/api/v1/groves/${groveId}/shared-dirs/${encodeURIComponent(dirName)}/files`;
   }
 
-  async listFiles(): Promise<FileListResult> {
-    const response = await apiFetch(this.basePath);
+  async listFiles(opts?: { limit?: number }): Promise<FileListResult> {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    const url = params.size ? `${this.basePath}?${params}` : this.basePath;
+    const response = await apiFetch(url);
+    if (!response.ok) {
+      throw new Error(await extractApiError(response, `HTTP ${response.status}`));
+    }
+    return (await response.json()) as FileListResult;
+  }
+
+  async searchFiles(query: string, limit?: number, signal?: AbortSignal): Promise<FileListResult> {
+    const params = new URLSearchParams({ q: query });
+    if (limit !== undefined) params.set('limit', String(limit));
+    const response = await apiFetch(`${this.basePath}?${params}`, { signal });
     if (!response.ok) {
       throw new Error(await extractApiError(response, `HTTP ${response.status}`));
     }
@@ -213,6 +247,7 @@ export class TemplateFileBrowserDataSource implements FileBrowserDataSource {
     this.basePath = `/api/v1/templates/${templateId}/files`;
   }
 
+  // Template file sets are small; always load all files and rely on local filtering only.
   async listFiles(): Promise<FileListResult> {
     const response = await apiFetch(this.basePath);
     if (!response.ok) {
@@ -354,12 +389,24 @@ export class ScionFileBrowser extends LitElement {
   @state() private loading = false;
   @state() private error: string | null = null;
   @state() private totalSize = 0;
+  @state() private totalCount = 0;
+  @state() private initialHasMore = false;
   @state() private providerCount = 0;
   @state() private uploadProgress = false;
   @state() private sortField: 'name' | 'size' | 'modified' = 'name';
   @state() private sortDir: 'asc' | 'desc' = 'asc';
   @state() private filterText = '';
   @state() private showDotFiles = false;
+
+  // Backend search state
+  @state() private backendResults: FileEntry[] = [];
+  @state() private backendSearching = false;
+  @state() private backendError = false;
+  @state() private backendHasMore = false;
+
+  private readonly initialLimit = 500;
+  private _searchAbortController: AbortController | null = null;
+  private _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   static override styles = css`
     :host {
@@ -561,6 +608,20 @@ export class ScionFileBrowser extends LitElement {
       border-radius: var(--scion-radius, 0.5rem);
     }
 
+    .search-spinner {
+      font-size: 0.75rem;
+      vertical-align: middle;
+      margin: 0 0.25rem;
+    }
+
+    .search-error-icon {
+      color: var(--sl-color-warning-700, #a16207);
+      vertical-align: middle;
+      font-size: 0.875rem;
+      margin-left: 0.25rem;
+      cursor: default;
+    }
+
     @media (max-width: 768px) {
       .hide-mobile {
         display: none;
@@ -573,6 +634,11 @@ export class ScionFileBrowser extends LitElement {
     if (this.dataSource) {
       void this.loadFiles();
     }
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._cancelSearch();
   }
 
   override updated(changed: Map<string, unknown>): void {
@@ -588,16 +654,109 @@ export class ScionFileBrowser extends LitElement {
     this.error = null;
 
     try {
-      const result = await this.dataSource.listFiles();
+      const result = await this.dataSource.listFiles({ limit: this.initialLimit });
       this.files = result.files || [];
       this.totalSize = result.totalSize || 0;
+      this.totalCount = result.totalCount || 0;
+      this.initialHasMore = result.hasMore ?? false;
       this.providerCount = result.providerCount ?? 0;
+      // Clear backend search state on reload
+      this.backendResults = [];
+      this.backendError = false;
+      this.backendHasMore = false;
     } catch (err) {
       console.error('Failed to load files:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load files';
     } finally {
       this.loading = false;
     }
+  }
+
+  // ── Backend search ──
+
+  private _cancelSearch(): void {
+    if (this._searchAbortController) {
+      this._searchAbortController.abort();
+      this._searchAbortController = null;
+    }
+    if (this._searchDebounceTimer !== null) {
+      clearTimeout(this._searchDebounceTimer);
+      this._searchDebounceTimer = null;
+    }
+  }
+
+  private handleFilterInput(value: string): void {
+    this.filterText = value;
+    this.backendError = false;
+
+    if (!value) {
+      this.backendResults = [];
+      this.backendHasMore = false;
+      this.backendSearching = false;
+      this._cancelSearch();
+      return;
+    }
+
+    if (!this.dataSource?.searchFiles) return;
+
+    if (this._searchDebounceTimer !== null) {
+      clearTimeout(this._searchDebounceTimer);
+    }
+    this._searchDebounceTimer = setTimeout(() => {
+      this._searchDebounceTimer = null;
+      void this._runBackendSearch(value);
+    }, 250);
+  }
+
+  private async _runBackendSearch(query: string): Promise<void> {
+    if (!this.dataSource?.searchFiles) return;
+
+    if (this._searchAbortController) {
+      this._searchAbortController.abort();
+    }
+    this._searchAbortController = new AbortController();
+    const { signal } = this._searchAbortController;
+
+    this.backendSearching = true;
+    try {
+      const result = await this.dataSource.searchFiles(query, this.initialLimit, signal);
+      if (signal.aborted) return;
+      this.backendResults = result.files || [];
+      this.backendHasMore = result.hasMore ?? false;
+      this.backendError = false;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      console.warn('Backend search failed:', err);
+      this.backendError = true;
+      this.backendResults = [];
+    } finally {
+      if (!signal.aborted) {
+        this.backendSearching = false;
+      }
+    }
+  }
+
+  private getMergedFiles(): FileEntry[] {
+    if (!this.filterText) return this.getBaseFiles();
+
+    const base = this.getBaseFiles();
+    const localMatches = this.applyFilter(base);
+
+    if (this.backendResults.length === 0) return localMatches;
+
+    const filteredBackend = this.showDotFiles
+      ? this.backendResults
+      : this.backendResults.filter((f) => !isDotFile(f.path));
+
+    const seen = new Set(localMatches.map((f) => f.path));
+    const merged = [...localMatches];
+    for (const f of filteredBackend) {
+      if (!seen.has(f.path)) {
+        merged.push(f);
+        seen.add(f.path);
+      }
+    }
+    return merged;
   }
 
   // ── Sorting ──
@@ -621,8 +780,7 @@ export class ScionFileBrowser extends LitElement {
   }
 
   private getFilteredAndSortedFiles(): FileEntry[] {
-    const base = this.getBaseFiles();
-    const filtered = this.filterText ? this.applyFilter(base) : base;
+    const filtered = this.getMergedFiles();
     return [...filtered].sort((a, b) => {
       let cmp = 0;
       switch (this.sortField) {
@@ -773,20 +931,38 @@ export class ScionFileBrowser extends LitElement {
 
   private renderToolbar() {
     const base = this.getBaseFiles();
-    const filtered = this.filterText ? this.applyFilter(base) : base;
-    const countLabel = this.filterText
-      ? `${filtered.length} / ${base.length} file${base.length !== 1 ? 's' : ''}`
-      : `${base.length} file${base.length !== 1 ? 's' : ''}`;
     const hasDotFiles = this.files.some((f) => isDotFile(f.path));
+
+    let countLabel;
+    if (this.filterText) {
+      const localMatches = this.applyFilter(base);
+      const localCount = localMatches.length;
+      if (this.backendSearching) {
+        countLabel = html`${localCount} local match${localCount !== 1 ? 'es' : ''} · <sl-spinner class="search-spinner"></sl-spinner> searching workspace…`;
+      } else if (this.backendError) {
+        countLabel = html`${localCount} local match${localCount !== 1 ? 'es' : ''}
+          <sl-tooltip content="Workspace search unavailable — showing local results only">
+            <sl-icon name="exclamation-triangle" class="search-error-icon"></sl-icon>
+          </sl-tooltip>`;
+      } else {
+        const mergedCount = this.getMergedFiles().length;
+        countLabel = this.backendHasMore
+          ? `${mergedCount} match${mergedCount !== 1 ? 'es' : ''} (more available — refine your filter)`
+          : `${mergedCount} match${mergedCount !== 1 ? 'es' : ''}`;
+      }
+    } else if (this.initialHasMore && this.totalCount > this.files.length) {
+      const sizeStr = this.totalSize > 0 ? ` (${formatFileSize(this.totalSize)})` : '';
+      countLabel = `${this.files.length.toLocaleString()} of ${this.totalCount.toLocaleString()} files${sizeStr} · most recent`;
+    } else {
+      const n = base.length;
+      const sizeStr = this.totalSize > 0 ? ` (${formatFileSize(this.totalSize)})` : '';
+      countLabel = `${n} file${n !== 1 ? 's' : ''}${sizeStr}`;
+    }
 
     return html`
       <div class="toolbar">
         <div class="toolbar-left">
-          <span class="toolbar-meta">
-            ${countLabel}${this.totalSize > 0
-              ? ` (${formatFileSize(this.totalSize)})`
-              : ''}
-          </span>
+          <span class="toolbar-meta">${countLabel}</span>
           ${this.files.length > 0
             ? html`
                 <sl-input
@@ -796,10 +972,10 @@ export class ScionFileBrowser extends LitElement {
                   clearable
                   .value=${this.filterText}
                   @sl-input=${(e: Event) => {
-                    this.filterText = (e.target as HTMLInputElement).value;
+                    this.handleFilterInput((e.target as HTMLInputElement).value);
                   }}
                   @sl-clear=${() => {
-                    this.filterText = '';
+                    this.handleFilterInput('');
                   }}
                 >
                   <sl-icon name="funnel" slot="prefix"></sl-icon>
@@ -888,7 +1064,7 @@ export class ScionFileBrowser extends LitElement {
         </div>
       `;
     }
-    if (this.files.length === 0) {
+    if (this.files.length === 0 && !this.filterText) {
       return html`
         <div class="empty-state">
           <sl-icon name="file-earmark"></sl-icon>
@@ -919,7 +1095,7 @@ export class ScionFileBrowser extends LitElement {
     const displayFiles = this.getFilteredAndSortedFiles();
     return html`
       <div class="file-table-wrapper">
-        ${this.filterText && displayFiles.length === 0
+        ${this.filterText && displayFiles.length === 0 && !this.backendSearching
           ? html`<div class="empty-filter">No files match the current filter.</div>`
           : html`
         <table class="file-table">

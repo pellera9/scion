@@ -1107,6 +1107,247 @@ func TestGroveWorkspacePull_MethodNotAllowed(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, "GET should not be allowed for pull")
 }
 
+// ============================================================================
+// FileSearcher / fuzzyMatch Unit Tests
+// ============================================================================
+
+func TestFuzzyMatch(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		// Basic in-order character matching
+		{"abc", "a/b/c.go", true},
+		{"abc", "xaxbxcx", true},
+		{"abc", "cba", false},
+		{"abc", "ab", false},
+
+		// Case-insensitive
+		{"ABC", "a/b/c.go", true},
+		{"abc", "A/B/C.GO", true},
+
+		// Empty pattern matches everything
+		{"", "anything", true},
+		{"", "", true},
+
+		// Exact match
+		{"foo", "foo", true},
+
+		// Pattern longer than string
+		{"toolong", "too", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("pattern=%q input=%q", tt.pattern, tt.input), func(t *testing.T) {
+			fn := fuzzyMatch(tt.pattern)
+			assert.Equal(t, tt.want, fn(tt.input))
+		})
+	}
+}
+
+func TestIntQueryParam(t *testing.T) {
+	makeReq := func(query string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/?"+query, nil)
+		return req
+	}
+
+	assert.Equal(t, 500, intQueryParam(makeReq(""), "limit", 500, 2000))
+	assert.Equal(t, 100, intQueryParam(makeReq("limit=100"), "limit", 500, 2000))
+	assert.Equal(t, 2000, intQueryParam(makeReq("limit=9999"), "limit", 500, 2000))
+	assert.Equal(t, 500, intQueryParam(makeReq("limit=0"), "limit", 500, 2000))
+	assert.Equal(t, 500, intQueryParam(makeReq("limit=-1"), "limit", 500, 2000))
+	assert.Equal(t, 500, intQueryParam(makeReq("limit=bad"), "limit", 500, 2000))
+}
+
+func TestWalkDirSearcher_NonExistentRoot(t *testing.T) {
+	result, err := defaultFileSearcher.Search("/nonexistent/path/that/does/not/exist", "", 500)
+	require.NoError(t, err)
+	assert.Empty(t, result.Files)
+	assert.Equal(t, 0, result.TotalCount)
+	assert.False(t, result.HasMore)
+}
+
+func TestWalkDirSearcher_NoQuery(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "alpha.txt"), []byte("aaa"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sub"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "sub", "beta.go"), []byte("bb"), 0644))
+
+	result, err := defaultFileSearcher.Search(root, "", 500)
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.TotalCount)
+	assert.False(t, result.HasMore)
+	assert.Equal(t, int64(5), result.TotalSize)
+
+	paths := make(map[string]bool)
+	for _, f := range result.Files {
+		paths[f.Path] = true
+	}
+	assert.True(t, paths["alpha.txt"])
+	assert.True(t, paths[filepath.Join("sub", "beta.go")])
+}
+
+func TestWalkDirSearcher_RegexQuery(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "foo.go"), []byte("go"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bar.ts"), []byte("ts"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "baz.go"), []byte("go"), 0644))
+
+	result, err := defaultFileSearcher.Search(root, `\.go$`, 500)
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.TotalCount)
+	assert.False(t, result.HasMore)
+
+	for _, f := range result.Files {
+		assert.True(t, strings.HasSuffix(f.Path, ".go"), "unexpected file: %s", f.Path)
+	}
+}
+
+func TestWalkDirSearcher_FuzzyFallback(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "server.go"), []byte("s"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "client.go"), []byte("c"), 0644))
+
+	// "[" is an invalid regex — verify the search degrades gracefully (no error,
+	// returns results via fuzzy fallback). Since "[" as a char doesn't appear in
+	// these filenames, TotalCount is 0, which is the correct fuzzy result.
+	result, err := defaultFileSearcher.Search(root, "[", 500)
+	require.NoError(t, err, "invalid regex must not cause an error")
+	assert.Equal(t, 0, result.TotalCount, "no filenames contain '['")
+
+	// Verify that a valid regex matches correctly (different from fuzzy in-order logic).
+	// "sev" as regex requires the LITERAL substring "sev" — "server.go" does not have it.
+	// "sev" as fuzzy would match "server.go" (s..e..v in order).
+	// Since "sev" IS a valid regex, the regex path runs and finds 0 matches.
+	result2, err2 := defaultFileSearcher.Search(root, "sev", 500)
+	require.NoError(t, err2)
+	assert.Equal(t, 0, result2.TotalCount, "literal regex 'sev' is not a substring of 'server.go'")
+}
+
+func TestWalkDirSearcher_LimitEnforced(t *testing.T) {
+	root := t.TempDir()
+	for i := range 10 {
+		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("file%02d.txt", i)), []byte("x"), 0644))
+	}
+
+	result, err := defaultFileSearcher.Search(root, "", 3)
+	require.NoError(t, err)
+	assert.Equal(t, 10, result.TotalCount)
+	assert.Len(t, result.Files, 3)
+	assert.True(t, result.HasMore)
+}
+
+func TestWalkDirSearcher_SortByModTimeDesc(t *testing.T) {
+	root := t.TempDir()
+
+	// Write files with explicit mod times to ensure deterministic ordering.
+	base := time.Now()
+	files := []struct {
+		name    string
+		content string
+		age     time.Duration
+	}{
+		{"oldest.txt", "old", 3 * time.Hour},
+		{"middle.txt", "mid", 2 * time.Hour},
+		{"newest.txt", "new", 1 * time.Hour},
+	}
+	for _, f := range files {
+		p := filepath.Join(root, f.name)
+		require.NoError(t, os.WriteFile(p, []byte(f.content), 0644))
+		mt := base.Add(-f.age)
+		require.NoError(t, os.Chtimes(p, mt, mt))
+	}
+
+	result, err := defaultFileSearcher.Search(root, "", 500)
+	require.NoError(t, err)
+	require.Len(t, result.Files, 3)
+	assert.Equal(t, "newest.txt", result.Files[0].Path)
+	assert.Equal(t, "middle.txt", result.Files[1].Path)
+	assert.Equal(t, "oldest.txt", result.Files[2].Path)
+}
+
+// ============================================================================
+// HTTP integration tests for search params
+// ============================================================================
+
+func TestGroveWorkspaceList_SearchQuery(t *testing.T) {
+	srv, _ := testServer(t)
+	grove, workspacePath := createTestHubNativeGrove(t, srv, "WS Search Query")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, "main.go"), []byte("go"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, "README.md"), []byte("md"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, "config.yaml"), []byte("yaml"), 0644))
+
+	// Search by regex
+	rec := doRequest(t, srv, http.MethodGet,
+		fmt.Sprintf("/api/v1/groves/%s/workspace/files?q=\\.go$", grove.ID), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp GroveWorkspaceListResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	for _, f := range resp.Files {
+		assert.True(t, strings.HasSuffix(f.Path, ".go") || strings.HasPrefix(f.Path, ".scion"),
+			"unexpected file: %s", f.Path)
+	}
+}
+
+func TestGroveWorkspaceList_LimitParam(t *testing.T) {
+	srv, _ := testServer(t)
+	grove, workspacePath := createTestHubNativeGrove(t, srv, "WS Limit Param")
+
+	for i := range 10 {
+		require.NoError(t, os.WriteFile(filepath.Join(workspacePath, fmt.Sprintf("f%02d.txt", i)), []byte("x"), 0644))
+	}
+
+	rec := doRequest(t, srv, http.MethodGet,
+		fmt.Sprintf("/api/v1/groves/%s/workspace/files?limit=3", grove.ID), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp GroveWorkspaceListResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	assert.LessOrEqual(t, len(resp.Files), 3)
+	assert.True(t, resp.HasMore)
+	assert.Greater(t, resp.TotalCount, len(resp.Files))
+}
+
+func TestGroveWorkspaceList_HasMoreFalseWhenFewFiles(t *testing.T) {
+	srv, _ := testServer(t)
+	grove, workspacePath := createTestHubNativeGrove(t, srv, "WS HasMore False")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, "only.txt"), []byte("x"), 0644))
+
+	rec := doRequest(t, srv, http.MethodGet,
+		fmt.Sprintf("/api/v1/groves/%s/workspace/files", grove.ID), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp GroveWorkspaceListResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.False(t, resp.HasMore)
+}
+
+func TestSharedDirFiles_SearchQuery(t *testing.T) {
+	srv, _ := testServer(t)
+	grove, workspacePath := createTestHubNativeGrove(t, srv, "SD Search Query")
+	addSharedDirToGrove(t, srv, grove.ID, "cache")
+
+	sharedDirPath := resolveTestSharedDirPath(t, workspacePath, "cache")
+	require.NoError(t, os.MkdirAll(sharedDirPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(sharedDirPath, "build.log"), []byte("log"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(sharedDirPath, "data.bin"), []byte("bin"), 0644))
+
+	rec := doRequest(t, srv, http.MethodGet,
+		fmt.Sprintf("/api/v1/groves/%s/shared-dirs/cache/files?q=\\.log$", grove.ID), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp SharedDirListResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 1, resp.TotalCount)
+	assert.Equal(t, "build.log", resp.Files[0].Path)
+}
+
 // Ensure the store's ErrNotFound is wired correctly for grove lookups.
 
 func init() {
