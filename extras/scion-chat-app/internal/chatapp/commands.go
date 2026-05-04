@@ -601,7 +601,7 @@ func (r *CommandRouter) cmdUnlink(ctx context.Context, event *ChatEvent, args []
 
 	// Cancel broker subscription
 	if r.broker != nil {
-		pattern := fmt.Sprintf("grove.%s.>", link.GroveID)
+		pattern := fmt.Sprintf("scion.grove.%s.>", link.GroveID)
 		if err := r.broker.CancelSubscription(pattern); err != nil {
 			r.log.Warn("failed to cancel grove subscription", "grove_id", link.GroveID, "error", err)
 		}
