@@ -161,6 +161,93 @@ func TestNormalizeEvent_CommandIDMapping(t *testing.T) {
 	}
 }
 
+func TestNormalizeEvent_CommandNameFromText(t *testing.T) {
+	adapter := NewAdapter(Config{}, nil, nil, slog.Default())
+
+	tests := []struct {
+		name        string
+		raw         rawEvent
+		wantCommand string
+	}{
+		{
+			name: "appCommandPayload resolves command name from message text",
+			raw: rawEvent{
+				Chat: &rawChatPayload{
+					User: &rawUser{Name: "users/1", Email: "u@e.com"},
+					AppCommandPayload: &rawAppCommandPayload{
+						Space:              &rawSpace{Name: "spaces/s"},
+						AppCommandMetadata: &rawAppCommandMetadata{AppCommandId: jsonNumber("99")},
+						Message: &rawMessage{
+							Text:         "/scionAdmin list",
+							ArgumentText: "list",
+						},
+					},
+				},
+			},
+			wantCommand: "scionAdmin",
+		},
+		{
+			name: "messagePayload resolves command name from message text",
+			raw: rawEvent{
+				Chat: &rawChatPayload{
+					User: &rawUser{Name: "users/1", Email: "u@e.com"},
+					MessagePayload: &rawMessagePayload{
+						Space: &rawSpace{Name: "spaces/s"},
+						Message: &rawMessage{
+							Text:         "/scionAdmin help",
+							ArgumentText: "help",
+							SlashCommand: &rawSlashCommand{CommandId: jsonNumber("42")},
+						},
+					},
+				},
+			},
+			wantCommand: "scionAdmin",
+		},
+		{
+			name: "appCommandPayload with no message falls back to scion",
+			raw: rawEvent{
+				Chat: &rawChatPayload{
+					User: &rawUser{Name: "users/1", Email: "u@e.com"},
+					AppCommandPayload: &rawAppCommandPayload{
+						Space:              &rawSpace{Name: "spaces/s"},
+						AppCommandMetadata: &rawAppCommandMetadata{AppCommandId: jsonNumber("99")},
+					},
+				},
+			},
+			wantCommand: "scion",
+		},
+		{
+			name: "appCommandPayload slashCommand fallback resolves from text",
+			raw: rawEvent{
+				Chat: &rawChatPayload{
+					User: &rawUser{Name: "users/1", Email: "u@e.com"},
+					AppCommandPayload: &rawAppCommandPayload{
+						Space: &rawSpace{Name: "spaces/s"},
+						Message: &rawMessage{
+							Text:         "/scionAdmin info",
+							ArgumentText: "info",
+							SlashCommand: &rawSlashCommand{CommandId: jsonNumber("77")},
+						},
+					},
+				},
+			},
+			wantCommand: "scionAdmin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := adapter.normalizeEvent(&tt.raw)
+			if event == nil {
+				t.Fatal("normalizeEvent returned nil")
+			}
+			if event.Command != tt.wantCommand {
+				t.Errorf("Command = %q, want %q", event.Command, tt.wantCommand)
+			}
+		})
+	}
+}
+
 func TestNormalizeEvent_SlashCommandInMessage(t *testing.T) {
 	adapter := NewAdapter(Config{
 		CommandIDMap: map[string]string{

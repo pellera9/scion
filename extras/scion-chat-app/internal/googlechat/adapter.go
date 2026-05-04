@@ -491,14 +491,14 @@ func (a *Adapter) normalizeEvent(raw *rawEvent) *chatapp.ChatEvent {
 			if name, ok := a.commandIDs[cmdID]; ok {
 				event.Command = name
 			} else {
-				event.Command = "scion" // default fallback
+				event.Command = commandNameFromText(p.Message)
 			}
 		} else if p.Message != nil && p.Message.SlashCommand != nil {
 			cmdID := p.Message.SlashCommand.CommandId.String()
 			if name, ok := a.commandIDs[cmdID]; ok {
 				event.Command = name
 			} else {
-				event.Command = "scion"
+				event.Command = commandNameFromText(p.Message)
 			}
 		}
 		if p.Message != nil {
@@ -526,7 +526,7 @@ func (a *Adapter) normalizeEvent(raw *rawEvent) *chatapp.ChatEvent {
 			if name, ok := a.commandIDs[cmdID]; ok {
 				event.Command = name
 			} else {
-				event.Command = "scion"
+				event.Command = commandNameFromText(p.Message)
 			}
 			event.Args = strings.TrimSpace(p.Message.ArgumentText)
 			return event
@@ -582,6 +582,19 @@ func (a *Adapter) normalizeEvent(raw *rawEvent) *chatapp.ChatEvent {
 		a.log.Debug("no recognized chat payload present")
 		return nil
 	}
+}
+
+// commandNameFromText extracts the slash command name from the message text,
+// falling back to "scion" if the text doesn't contain a recognizable command.
+func commandNameFromText(msg *rawMessage) string {
+	if msg == nil {
+		return "scion"
+	}
+	f := strings.Fields(msg.Text)
+	if len(f) > 0 && strings.HasPrefix(f[0], "/") {
+		return strings.TrimPrefix(f[0], "/")
+	}
+	return "scion"
 }
 
 // getParameters extracts action parameters from commonEventObject.
