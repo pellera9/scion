@@ -191,6 +191,8 @@ func Execute() {
 		autoHelp = *settings.CLI.AutoHelp
 	}
 
+	applyModeRestrictions(rootCmd)
+
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n%s%s%sError: %v%s\n\n", util.BgRed, util.White, util.Bold, err, util.Reset)

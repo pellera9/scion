@@ -118,7 +118,8 @@ type HubClientConfig struct {
 
 type CLIConfig struct {
 	// AutoHelp indicates whether to print usage help on every error.
-	AutoHelp *bool `json:"autohelp,omitempty" yaml:"autohelp,omitempty" koanf:"autohelp"`
+	AutoHelp *bool  `json:"autohelp,omitempty" yaml:"autohelp,omitempty" koanf:"autohelp"`
+	Mode     string `json:"mode,omitempty" yaml:"mode,omitempty" koanf:"mode"`
 }
 
 // HubConnectionConfig defines settings for a named hub connection.
@@ -690,6 +691,11 @@ func updateSettingLegacy(dir string, key string, value string) error {
 		}
 		autohelp := value == "true"
 		current.CLI.AutoHelp = &autohelp
+	case "cli.mode":
+		if current.CLI == nil {
+			current.CLI = &CLIConfig{}
+		}
+		current.CLI.Mode = value
 	default:
 		// Handle hub_connections.<name>.endpoint keys
 		if strings.HasPrefix(key, "hub_connections.") {
@@ -830,6 +836,11 @@ func GetSettingValue(s *Settings, key string) (string, error) {
 			return "false", nil
 		}
 		return "", nil
+	case "cli.mode":
+		if s.CLI != nil {
+			return s.CLI.Mode, nil
+		}
+		return "", nil
 	}
 
 	// Handle hub_connections.<name>.endpoint keys
@@ -903,6 +914,9 @@ func GetSettingsMap(s *Settings) map[string]string {
 			} else {
 				m["cli.autohelp"] = "false"
 			}
+		}
+		if s.CLI.Mode != "" {
+			m["cli.mode"] = s.CLI.Mode
 		}
 	}
 	for name, conn := range s.HubConnections {

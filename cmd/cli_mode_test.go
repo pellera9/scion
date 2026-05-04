@@ -1,0 +1,429 @@
+package cmd
+
+import (
+	"os"
+	"sort"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestResolveMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected CLIMode
+	}{
+		{
+			name:     "default is human when unset",
+			envValue: "",
+			expected: ModeHuman,
+		},
+		{
+			name:     "assistant mode from env",
+			envValue: "assistant",
+			expected: ModeAssistant,
+		},
+		{
+			name:     "agent mode from env",
+			envValue: "agent",
+			expected: ModeAgent,
+		},
+		{
+			name:     "human mode from env",
+			envValue: "human",
+			expected: ModeHuman,
+		},
+		{
+			name:     "unrecognized value defaults to human",
+			envValue: "bogus",
+			expected: ModeHuman,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				t.Setenv("SCION_CLI_MODE", tt.envValue)
+			} else {
+				t.Setenv("SCION_CLI_MODE", "")
+				os.Unsetenv("SCION_CLI_MODE")
+			}
+			mode := resolveMode()
+			assert.Equal(t, tt.expected, mode)
+		})
+	}
+}
+
+// buildTestTree creates a command tree mimicking a subset of the real scion CLI
+// for testing mode filtering.
+func buildTestTree() *cobra.Command {
+	root := &cobra.Command{Use: "scion"}
+
+	// Top-level commands
+	for _, name := range []string{
+		"create", "delete", "list", "start", "stop", "attach", "look", "logs",
+		"message", "resume", "restore", "sync", "clean", "cdw", "init",
+		"doctor", "version",
+	} {
+		root.AddCommand(&cobra.Command{Use: name})
+	}
+
+	// messages with subcommand
+	messages := &cobra.Command{Use: "messages"}
+	messages.AddCommand(&cobra.Command{Use: "read"})
+	root.AddCommand(messages)
+
+	// config with subcommands
+	cfg := &cobra.Command{Use: "config"}
+	for _, name := range []string{"list", "set", "get", "validate", "migrate", "dir", "cd-config", "cd-grove", "schema"} {
+		cfg.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(cfg)
+
+	// hub with subcommands
+	hub := &cobra.Command{Use: "hub"}
+	hub.AddCommand(&cobra.Command{Use: "status"})
+	hub.AddCommand(&cobra.Command{Use: "enable"})
+	hub.AddCommand(&cobra.Command{Use: "disable"})
+	hub.AddCommand(&cobra.Command{Use: "link"})
+	hub.AddCommand(&cobra.Command{Use: "unlink"})
+
+	hubAuth := &cobra.Command{Use: "auth"}
+	hubAuth.AddCommand(&cobra.Command{Use: "login"})
+	hubAuth.AddCommand(&cobra.Command{Use: "logout"})
+	hub.AddCommand(hubAuth)
+
+	hubToken := &cobra.Command{Use: "token"}
+	hubToken.AddCommand(&cobra.Command{Use: "create"})
+	hubToken.AddCommand(&cobra.Command{Use: "list"})
+	hubToken.AddCommand(&cobra.Command{Use: "revoke"})
+	hubToken.AddCommand(&cobra.Command{Use: "delete"})
+	hub.AddCommand(hubToken)
+
+	hubGrv := &cobra.Command{Use: "groves"}
+	hubGrv.AddCommand(&cobra.Command{Use: "info"})
+	hubGrv.AddCommand(&cobra.Command{Use: "delete"})
+	hub.AddCommand(hubGrv)
+
+	hubBrk := &cobra.Command{Use: "brokers"}
+	hubBrk.AddCommand(&cobra.Command{Use: "info"})
+	hubBrk.AddCommand(&cobra.Command{Use: "delete"})
+	hub.AddCommand(hubBrk)
+
+	hubEnv := &cobra.Command{Use: "env"}
+	hubEnv.AddCommand(&cobra.Command{Use: "set"})
+	hubEnv.AddCommand(&cobra.Command{Use: "get"})
+	hub.AddCommand(hubEnv)
+
+	hubSecret := &cobra.Command{Use: "secret"}
+	hubSecret.AddCommand(&cobra.Command{Use: "set"})
+	hubSecret.AddCommand(&cobra.Command{Use: "get"})
+	hub.AddCommand(hubSecret)
+
+	hubNotif := &cobra.Command{Use: "notifications"}
+	hub.AddCommand(hubNotif)
+
+	root.AddCommand(hub)
+
+	// grove with subcommands
+	grove := &cobra.Command{Use: "grove"}
+	for _, name := range []string{"init", "list", "prune", "reconnect"} {
+		grove.AddCommand(&cobra.Command{Use: name})
+	}
+	groveSA := &cobra.Command{Use: "service-accounts"}
+	groveSA.AddCommand(&cobra.Command{Use: "add"})
+	groveSA.AddCommand(&cobra.Command{Use: "list"})
+	grove.AddCommand(groveSA)
+	root.AddCommand(grove)
+
+	// server with subcommands
+	server := &cobra.Command{Use: "server"}
+	for _, name := range []string{"start", "stop", "restart", "status", "install"} {
+		server.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(server)
+
+	// broker with subcommands
+	broker := &cobra.Command{Use: "broker"}
+	for _, name := range []string{"register", "deregister", "start", "provide", "withdraw"} {
+		broker.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(broker)
+
+	// schedule with subcommands
+	sched := &cobra.Command{Use: "schedule"}
+	for _, name := range []string{"list", "get", "cancel", "create", "create-recurring", "pause", "resume", "delete", "history"} {
+		sched.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(sched)
+
+	// notifications with subcommands
+	notif := &cobra.Command{Use: "notifications"}
+	for _, name := range []string{"ack", "subscribe", "unsubscribe", "update", "subscriptions"} {
+		notif.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(notif)
+
+	// shared-dir with subcommands
+	sd := &cobra.Command{Use: "shared-dir"}
+	for _, name := range []string{"list", "create", "remove", "info"} {
+		sd.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(sd)
+
+	// templates with subcommands
+	templates := &cobra.Command{Use: "templates"}
+	for _, name := range []string{"list", "show", "delete", "clone"} {
+		templates.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(templates)
+
+	// template (singular alias)
+	template := &cobra.Command{Use: "template"}
+	for _, name := range []string{"list", "show", "delete", "clone"} {
+		template.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(template)
+
+	// harness-config
+	hc := &cobra.Command{Use: "harness-config"}
+	for _, name := range []string{"list", "set", "get", "install"} {
+		hc.AddCommand(&cobra.Command{Use: name})
+	}
+	root.AddCommand(hc)
+
+	// Built-in commands that should always be kept
+	root.AddCommand(&cobra.Command{Use: "help"})
+	root.AddCommand(&cobra.Command{Use: "completion"})
+
+	return root
+}
+
+// collectCommandNames returns a sorted list of dot-separated command paths
+// in the given command tree (excluding the root itself).
+func collectCommandNames(root *cobra.Command) []string {
+	var names []string
+	var walk func(cmd *cobra.Command, prefix string)
+	walk = func(cmd *cobra.Command, prefix string) {
+		for _, child := range cmd.Commands() {
+			path := child.Name()
+			if prefix != "" {
+				path = prefix + "." + child.Name()
+			}
+			names = append(names, path)
+			walk(child, path)
+		}
+	}
+	walk(root, "")
+	sort.Strings(names)
+	return names
+}
+
+func TestApplyModeRestrictions_Human(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "human")
+	root := buildTestTree()
+	before := collectCommandNames(root)
+	applyModeRestrictions(root)
+	after := collectCommandNames(root)
+	assert.Equal(t, before, after, "human mode should not remove any commands")
+}
+
+func TestApplyModeRestrictions_Assistant(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "assistant")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+
+	// These commands should be removed
+	removed := []string{
+		"hub.auth", "hub.auth.login", "hub.auth.logout",
+		"hub.token", "hub.token.create", "hub.token.list", "hub.token.revoke", "hub.token.delete",
+		"grove.reconnect",
+		"config.migrate", "config.cd-config", "config.cd-grove",
+		"cdw",
+		"clean",
+	}
+	for _, cmd := range removed {
+		assert.NotContains(t, remaining, cmd, "assistant mode should remove %s", cmd)
+	}
+
+	// These commands should still be present
+	present := []string{
+		"create", "delete", "list", "start", "stop", "attach",
+		"config", "config.list", "config.set", "config.get", "config.validate", "config.dir", "config.schema",
+		"hub", "hub.status", "hub.enable", "hub.disable", "hub.link", "hub.unlink",
+		"hub.groves", "hub.brokers", "hub.env", "hub.secret",
+		"grove", "grove.init", "grove.list", "grove.prune", "grove.service-accounts",
+		"server", "server.start", "server.stop",
+		"broker",
+		"templates",
+		"help", "completion",
+	}
+	for _, cmd := range present {
+		assert.Contains(t, remaining, cmd, "assistant mode should keep %s", cmd)
+	}
+}
+
+func TestApplyModeRestrictions_Agent(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "agent")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+
+	// These commands should be present in agent mode
+	expected := []string{
+		"completion",
+		"config", "config.dir", "config.get", "config.list", "config.schema",
+		"create", "delete", "doctor",
+		"help",
+		"hub", "hub.notifications", "hub.status",
+		"list", "logs", "look",
+		"message", "messages", "messages.read",
+		"notifications",
+		"notifications.ack", "notifications.subscribe", "notifications.subscriptions",
+		"notifications.unsubscribe", "notifications.update",
+		"resume",
+		"schedule", "schedule.cancel", "schedule.get", "schedule.history", "schedule.list",
+		"shared-dir", "shared-dir.info", "shared-dir.list",
+		"start", "stop", "version",
+	}
+	assert.Equal(t, expected, remaining)
+
+	// These should be removed
+	absent := []string{
+		"attach", "broker", "cdw", "clean", "grove", "harness-config",
+		"init", "restore", "server", "sync", "template", "templates",
+	}
+	for _, cmd := range absent {
+		assert.NotContains(t, remaining, cmd, "agent mode should remove %s", cmd)
+	}
+}
+
+func TestApplyModeRestrictions_AgentConfigSubcommands(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "agent")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+
+	// config parent should exist with only allowed subcommands
+	assert.Contains(t, remaining, "config")
+	assert.Contains(t, remaining, "config.list")
+	assert.Contains(t, remaining, "config.get")
+	assert.Contains(t, remaining, "config.dir")
+	assert.Contains(t, remaining, "config.schema")
+
+	// config.set, config.validate, config.migrate should be absent
+	assert.NotContains(t, remaining, "config.set")
+	assert.NotContains(t, remaining, "config.validate")
+	assert.NotContains(t, remaining, "config.migrate")
+}
+
+func TestApplyModeRestrictions_AgentScheduleSubcommands(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "agent")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+
+	assert.Contains(t, remaining, "schedule")
+	assert.Contains(t, remaining, "schedule.list")
+	assert.Contains(t, remaining, "schedule.get")
+	assert.Contains(t, remaining, "schedule.cancel")
+	assert.Contains(t, remaining, "schedule.history")
+
+	assert.NotContains(t, remaining, "schedule.create")
+	assert.NotContains(t, remaining, "schedule.create-recurring")
+	assert.NotContains(t, remaining, "schedule.pause")
+	assert.NotContains(t, remaining, "schedule.resume")
+	assert.NotContains(t, remaining, "schedule.delete")
+}
+
+func TestApplyModeRestrictions_BuiltinsAlwaysKept(t *testing.T) {
+	for _, mode := range []string{"human", "assistant", "agent"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("SCION_CLI_MODE", mode)
+			root := buildTestTree()
+			applyModeRestrictions(root)
+			remaining := collectCommandNames(root)
+			assert.Contains(t, remaining, "help")
+			assert.Contains(t, remaining, "completion")
+		})
+	}
+}
+
+func TestApplyModeRestrictions_TemplateAlias(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "agent")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+
+	assert.NotContains(t, remaining, "template")
+	assert.NotContains(t, remaining, "templates")
+}
+
+func TestRemoveCommands_DoesNotPanicOnEmptyTree(t *testing.T) {
+	root := &cobra.Command{Use: "root"}
+	removed := removeCommands(root, "", func(path string) bool { return true })
+	assert.Equal(t, 0, removed)
+}
+
+func TestAssistantDeniedList(t *testing.T) {
+	expectedDenied := []string{
+		"hub.auth", "hub.token",
+		"grove.reconnect",
+		"config.migrate", "config.cd-config", "config.cd-grove",
+		"cdw", "clean",
+	}
+	for _, path := range expectedDenied {
+		assert.True(t, assistantDenied[path], "assistantDenied should contain %s", path)
+	}
+
+	notDenied := []string{
+		"create", "list", "hub.status", "config.list", "config.set",
+		"server", "grove.init", "templates",
+	}
+	for _, path := range notDenied {
+		assert.False(t, assistantDenied[path], "assistantDenied should NOT contain %s", path)
+	}
+}
+
+func TestAgentAllowedList(t *testing.T) {
+	expectedAllowed := []string{
+		"create", "delete", "list", "start", "stop", "look", "logs",
+		"message", "messages", "messages.read",
+		"resume", "doctor", "version",
+		"config", "config.list", "config.get", "config.dir", "config.schema",
+		"hub", "hub.status", "hub.notifications",
+		"notifications",
+		"schedule", "schedule.list", "schedule.get", "schedule.cancel", "schedule.history",
+		"shared-dir", "shared-dir.list", "shared-dir.info",
+	}
+	for _, path := range expectedAllowed {
+		assert.True(t, agentAllowed[path], "agentAllowed should contain %s", path)
+	}
+
+	notAllowed := []string{
+		"attach", "restore", "sync", "clean", "cdw", "init",
+		"server", "broker", "grove", "templates", "template",
+		"harness-config",
+		"config.set", "config.validate", "config.migrate",
+		"hub.enable", "hub.disable", "hub.link", "hub.unlink",
+		"hub.auth", "hub.token", "hub.groves", "hub.brokers",
+		"hub.env", "hub.secret",
+		"schedule.create", "schedule.create-recurring", "schedule.delete",
+		"schedule.pause", "schedule.resume",
+		"shared-dir.create", "shared-dir.remove",
+	}
+	for _, path := range notAllowed {
+		assert.False(t, agentAllowed[path], "agentAllowed should NOT contain %s", path)
+	}
+}
+
+func TestResolveModeEnvOverridesSettings(t *testing.T) {
+	// Even if settings would return "assistant", env var wins
+	t.Setenv("SCION_CLI_MODE", "agent")
+	mode := resolveMode()
+	require.Equal(t, ModeAgent, mode)
+}

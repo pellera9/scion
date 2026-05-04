@@ -551,6 +551,7 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 			opts.Env["SCION_CREATOR"] = u.Username
 		}
 	}
+	opts.Env["SCION_CLI_MODE"] = "agent"
 
 	// Determine whether hub is explicitly disabled in grove settings.
 	// When disabled, we suppress hub env var injection from agent config
